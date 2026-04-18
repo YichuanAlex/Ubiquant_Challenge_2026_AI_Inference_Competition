@@ -1,3 +1,73 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5b9dbc333fc6dc42d189133e8d2f0cbb0ba2ffc025bbb410447b5e6c75955d9d
-size 2201
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "rust-analyzer.linkedProjects": [
+            "Cargo.toml",
+            "lib/bindings/python/Cargo.toml"
+        ],
+        "rust-analyzer.procMacro.enable": true,
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "rust-lang.rust-analyzer"
+        ]
+    },
+    "launch": {
+        // REQUIRES:
+        // export RUSTFLAGS="-g"
+        // cargo b --features cuda --profile dev
+        "configurations": [
+            {
+                "name": "Dynamo Frontend",
+                "type": "lldb",
+                "request": "launch",
+                "program": "${workspaceFolder}/.venv/bin/python",
+                "args": [
+                    "-m",
+                    "dynamo.frontend",
+                ],
+                "initCommands": [
+                    "settings set target.disable-aslr false"
+                ],
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "RUST_BACKTRACE": "1",
+                    "PYTHONPATH": "${env:PYTHONPATH}:${workspaceFolder}/components/src"
+                },
+                "sourceLanguages": [
+                    "rust"
+                ]
+            },
+            {
+                "name": "Dynamo vLLM Backend",
+                "type": "lldb",
+                "request": "launch",
+                "program": "${workspaceFolder}/.venv/bin/python",
+                "args": [
+                    "-m",
+                    "dynamo.vllm",
+                    "--model",
+                    "${env:DYNAMO_MODEL_NAME}",
+                    "--enforce-eager",
+                    "--no-enable-prefix-caching",
+                ],
+                "initCommands": [
+                    "settings set target.disable-aslr false"
+                ],
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "RUST_BACKTRACE": "1",
+                    "PYTHONPATH": "${env:PYTHONPATH}:${workspaceFolder}/components/src"
+                },
+                "sourceLanguages": [
+                    "rust"
+                ]
+            }
+        ]
+    }
+}

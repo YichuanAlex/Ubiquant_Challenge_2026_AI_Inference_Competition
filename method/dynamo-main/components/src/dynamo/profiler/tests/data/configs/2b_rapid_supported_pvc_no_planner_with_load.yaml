@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:0b9ddeeba81207de6f5b47689a7304a23dff332a0e461994a375b31313403ff4
-size 508
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Case 2b: AIC supported model, rapid, without planner, input load, with PVC model cache
+model: "Qwen/Qwen3-32B"
+backend: trtllm
+image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:latest"
+hardware:
+  gpuSku: h200_sxm
+  totalGpus: 64
+  numGpusPerNode: 8
+modelCache:
+  pvcName: model-cache
+  pvcModelPath: /model/Qwen3-32B
+workload:
+  requestRate: 5.0
+sla:
+  itl: 50.0

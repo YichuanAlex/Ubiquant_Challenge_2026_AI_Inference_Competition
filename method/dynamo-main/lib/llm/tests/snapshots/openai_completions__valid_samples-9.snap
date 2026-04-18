@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9c19481e0f8c047094313e477b6cd1e457e8a3b4b6c7d905fb1b9daa097f4e7c
-size 235
+---
+source: dynamo.llm/tests/openai_completions.rs
+description: "should have prompt, model, and stream fields"
+expression: sample.request
+---
+{
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?",
+  "stream": true
+}

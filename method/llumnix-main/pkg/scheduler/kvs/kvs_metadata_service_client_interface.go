@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cebc584f5a55982dc43955899a7df406f5d872386c1507606de5fe7cae9bb3bf
-size 645
+package kvs
+
+type KVSMetadataServiceClientInterface interface {
+	// BatchQueryPrefixHashHitKVSInstances retrieves the list of kvs instances (identified by string) associated with multiple hash keys from the kvs metadata service.
+	// Parameters:
+	//   - hashKeys: A slice of strings representing the hash keys to query.
+	//
+	// Returns:
+	//   - map[string][]string: A map where the key is the hash key and the value is a slice of strings representing the kvs instances associated with that hash key.
+	//   - error: An error if the query fails, otherwise nil.
+	BatchQueryPrefixHashHitKVSInstances(hashKeys []string) (map[string][]string, error)
+}

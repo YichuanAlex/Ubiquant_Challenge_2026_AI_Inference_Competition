@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:15ec567ac21f6aad36aaca05f242a1c644ea001d39e11e60f613df8cc72b68a8
-size 672
+from scipy.stats import gamma
+
+from sarathi.benchmark.config import GammaRequestIntervalGeneratorConfig
+from sarathi.benchmark.request_generator.base_request_interval_generator import (
+    BaseRequestIntervalGenerator,
+)
+
+
+class GammaRequestIntervalGenerator(BaseRequestIntervalGenerator):
+
+    def __init__(self, config: GammaRequestIntervalGeneratorConfig):
+        super().__init__(config)
+
+        cv = self.config.cv
+        self.qps = self.config.qps
+        self.gamma_shape = 1.0 / (cv**2)
+
+    def get_next_inter_request_time(self) -> float:
+        gamma_scale = 1.0 / (self.qps * self.gamma_shape)
+        return gamma.rvs(self.gamma_shape, scale=gamma_scale)

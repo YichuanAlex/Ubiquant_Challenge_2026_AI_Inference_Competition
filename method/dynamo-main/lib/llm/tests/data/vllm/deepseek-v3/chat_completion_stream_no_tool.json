@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c70694558e3b0b1f7d2a189da182370417f545a3a743551ab35b175793f07074
-size 1326
+{
+  "request_id": "deepseek-v3-no-tool-test",
+  "expected_output": {
+    "normal_content": "The weather in Beijing today is sunny with temperatures between 15 and 22 degrees Celsius. It's suitable for outdoor activities.",
+    "reasoning_content": "The user asked about the weather in Beijing, I will provide relevant weather information.",
+    "tool_calls": []
+  },
+  "input_stream": [
+    {"data":{"id":"chatcmpl-deepseek-v3-no-tool","choices":[{"index":0,"delta":{"content":"<think>The user asked about the weather in Beijing, I will provide relevant weather information.</think>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":"The user asked about the weather in Beijing, I will provide relevant weather information."}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3-no-tool","choices":[{"index":0,"delta":{"content":"The weather in Beijing today is sunny with temperatures between 15 and 22 degrees Celsius. It's suitable for outdoor activities.","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3-no-tool","choices":[{"index":0,"delta":{"content":null,"function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null},"finish_reason":"stop"}]}}
+  ]
+}

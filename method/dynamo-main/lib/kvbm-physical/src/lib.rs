@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5d527a98e0bf9385e8c487c5e95c74600bd51f727bc10c62c104aed4ede0c894
-size 785
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+pub mod layout;
+pub mod manager;
+pub mod transfer;
+
+pub use manager::TransferManager;
+pub use transfer::{TransferConfig, TransferOptions};
+
+pub use kvbm_common::BlockId;
+pub type SequenceHash = kvbm_common::SequenceHash;
+
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
+#[cfg(test)]
+#[cfg(not(feature = "testing-kvbm"))]
+mod sentinel {
+    #[test]
+    #[allow(non_snake_case)]
+    fn all_functional_tests_skipped___enable_testing_kvbm() {
+        eprintln!(
+            "kvbm-physical functional tests require feature `testing-kvbm`. \
+             Run with: cargo test -p kvbm-physical --features testing-kvbm"
+        );
+    }
+}

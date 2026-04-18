@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9d9fcf8cca0aa7b13cff72f1226f6f1b431ab99170c295f09b04379b5072ae0e
-size 446
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Case 6: Thorough, without planner, input load (test with --dry-run)
+model: "Qwen/Qwen3-32B"
+backend: trtllm
+image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:latest"
+hardware:
+  gpuSku: h200_sxm
+  totalGpus: 64
+  numGpusPerNode: 8
+workload:
+  requestRate: 5.0
+sla:
+  itl: 50.0
+searchStrategy: thorough

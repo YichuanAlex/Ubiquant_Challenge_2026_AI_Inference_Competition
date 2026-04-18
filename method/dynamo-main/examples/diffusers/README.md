@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c8206b8e9d913b9436cbdc7d5b4b14bba5f817d079be3614c1e803f67e84b3fe
-size 391
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+# FastVideo Video Diffusion Example
+
+Full documentation can be found:
+
+- [FastVideo - Dynamo Docs](https://docs.nvidia.com/dynamo/dev/user-guides/diffusion/fastvideo) (Recommended)
+- [FastVideo - GitHub](../../docs/features/diffusion/fastvideo.md)

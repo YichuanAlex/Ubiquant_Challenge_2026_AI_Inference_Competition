@@ -1,3 +1,27 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:0dd679840c47503a2f5b6e1dbde98515baafd890be8a00e8139b00a9d043f6f0
-size 702
+#!/bin/bash
+set -e
+
+CUSTOM_IMAGE=""
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --image) CUSTOM_IMAGE="$2"; shift ;;
+        *) echo "Unknown parameter: $1"; echo "Usage: $0 [--image <dev-image>]"; exit 1 ;;
+    esac
+    shift
+done
+
+DEFAULT_IMAGE="llumnix-registry.cn-beijing.cr.aliyuncs.com/llumnix/vllm:dev-20260326-165612"
+IMAGE="${CUSTOM_IMAGE:-${DEFAULT_IMAGE}}"
+
+echo "Building wheel package..."
+
+docker run --rm \
+  --network host \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  "$IMAGE" \
+  bash -c "cd ./python/llumnix && rm -rf dist && make vllm_install && python3 setup.py bdist_wheel"
+
+echo "✓ Build completed"
+echo "Generated wheel package: $(ls -1 ./python/llumnix/dist/*.whl)"

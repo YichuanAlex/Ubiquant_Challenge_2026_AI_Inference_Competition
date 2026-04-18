@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:de672fd2a06378c89326c2bc09bb6ee4ec910dedb2b6a6fa12281de6b6968e97
-size 342
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Case 11: Auto backend, rapid, without planner, no input load
+model: "Qwen/Qwen3-32B"
+image: "hongkuanz196/trtllm-runtime:hzhou-0224"
+hardware:
+  gpuSku: h200_sxm
+  totalGpus: 8
+  numGpusPerNode: 8

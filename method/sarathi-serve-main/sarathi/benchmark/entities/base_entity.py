@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2f2e633bd2a6f492e457180428b08047ac95d0815d3676064b1c6be0c95b3de1
-size 414
+class BaseEntity:
+    _id = 0
+
+    @classmethod
+    def generate_id(cls):
+        cls._id += 1
+        return cls._id
+
+    @property
+    def id(self) -> int:
+        return self._id
+
+    def __str__(self) -> str:
+        # use to_dict to get a dict representation of the object
+        # and convert it to a string
+        class_name = self.__class__.__name__
+        return f"{class_name}({str(self.to_dict())})"

@@ -1,3 +1,34 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f6b0919c70c60f1a4777a6a87f6a4eedfeba82f501eab2acbb9089f3cfde5575
-size 1164
+from enum import Enum
+from typing import Union
+
+from sarathi.model_executor.attention.flashinfer_attention_wrapper import (
+    FlashinferAttentionWrapper,
+)
+from sarathi.model_executor.attention.no_op_attention_wrapper import (
+    NoOpAttentionWrapper,
+)
+from sarathi.types import AttentionBackend
+
+ATTENTION_BACKEND = AttentionBackend.NO_OP
+
+
+def set_attention_backend(backend: Union[str, AttentionBackend]):
+    if isinstance(backend, str):
+        backend = backend.upper()
+        if backend not in AttentionBackend.__members__:
+            raise ValueError(f"Unsupported attention backend: {backend}")
+        backend = AttentionBackend[backend]
+    elif not isinstance(backend, AttentionBackend):
+        raise ValueError(f"Unsupported attention backend: {backend}")
+
+    global ATTENTION_BACKEND
+    ATTENTION_BACKEND = backend
+
+
+def get_attention_wrapper():
+    if ATTENTION_BACKEND == AttentionBackend.FLASHINFER:
+        return FlashinferAttentionWrapper.get_instance()
+    elif ATTENTION_BACKEND == AttentionBackend.NO_OP:
+        return NoOpAttentionWrapper.get_instance()
+
+    raise ValueError(f"Unsupported attention backend: {ATTENTION_BACKEND}")

@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1f4c7f343a4798c42f8e98d46763ac71cb637cf829014861e55140aea93e1380
-size 465
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Constants for vLLM backend.
+
+DisaggregationMode is defined in dynamo.common.constants and re-exported here
+so that existing imports from dynamo.vllm.constants continue to work.
+"""
+
+from dynamo.common.constants import DisaggregationMode, EmbeddingTransferMode
+
+__all__ = ["DisaggregationMode", "EmbeddingTransferMode"]

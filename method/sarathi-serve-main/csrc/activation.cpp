@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:eb35a4271ccb13553e89becf525eabcb8dd5d7d067d9c324f608a5d2138369f3
-size 527
+#include <torch/extension.h>
+
+void silu_and_mul(
+  torch::Tensor& out,
+  torch::Tensor& input);
+
+void gelu_new(
+  torch::Tensor& out,
+  torch::Tensor& input);
+
+void gelu_fast(
+  torch::Tensor& out,
+  torch::Tensor& input);
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def(
+    "silu_and_mul",
+    &silu_and_mul,
+    "Activation function used in SwiGLU.");
+  m.def(
+    "gelu_new",
+    &gelu_new,
+    "GELU implementation used in GPT-2.");
+  m.def(
+    "gelu_fast",
+    &gelu_fast,
+    "Approximate GELU implementation.");
+}

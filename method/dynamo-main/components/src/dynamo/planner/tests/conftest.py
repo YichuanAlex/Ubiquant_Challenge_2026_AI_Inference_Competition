@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7ff1df3476e2ffbdc7a0c05c34cdc58ada31c2c631594841e79137efcdf8ea89
-size 448
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Local conftest.py for planner tests to disable automatic test logging.
+This overrides the autouse logger fixture from the parent conftest.py.
+"""
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def logger(request):
+    """Dummy logger fixture that does nothing - overrides the parent one."""
+    yield

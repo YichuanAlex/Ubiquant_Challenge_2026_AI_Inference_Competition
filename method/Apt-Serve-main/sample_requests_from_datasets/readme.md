@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a178c47b4a531344c503aa85b7baf0fe685a973558a350edd3c12a4a1b2e4a8f
-size 394
+# Sample trace from the datasets
+For the ShareGPT dataset, it is required to download the dataset as follow:
+```
+wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json
+```
+
+For the other datasets, they can be accessed in HuggingFace. <br>
+The specfic operations required are provided in the corresponding .py file.

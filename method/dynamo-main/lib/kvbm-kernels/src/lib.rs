@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7a8edf17df32abe941523d0d439a3cf223d3ef03c272a6d97146d1de7b1d5f21
-size 558
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+pub mod tensor_kernels;
+
+// Always available - core transfer functionality
+pub use tensor_kernels::{
+    MemcpyBatchMode, is_memcpy_batch_available, is_using_stubs, memcpy_batch, vectorized_copy,
+};
+
+// Permute kernels - data layout transformation (requires permute_kernels feature)
+#[cfg(feature = "permute_kernels")]
+pub use tensor_kernels::{BlockLayout, TensorDataType, block_from_universal, universal_from_block};

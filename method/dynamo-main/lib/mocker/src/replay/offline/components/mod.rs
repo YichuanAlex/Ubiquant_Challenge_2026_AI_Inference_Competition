@@ -1,3 +1,19 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e759ef3ceb5c5cb5ecd19973a02892f860e9c5a6ae83f6906b3be4fe5cad7d0f
-size 694
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+mod admission;
+mod engine;
+mod router;
+mod types;
+
+pub(in crate::replay::offline) use admission::AdmissionQueue;
+pub(in crate::replay::offline) use engine::EngineComponent;
+pub(crate) use router::OfflineReplayRouter;
+#[cfg(test)]
+pub(crate) use router::OfflineRouterSnapshot;
+pub(in crate::replay) use types::ReplayMode;
+pub use types::TrafficStats;
+pub(in crate::replay::offline) use types::{
+    EngineEffects, EnginePassMode, ReadyArrival, ScheduledWorkerCompletion, TrafficAccumulator,
+};
+pub(crate) use types::{RouterEffects, WorkerAdmission};

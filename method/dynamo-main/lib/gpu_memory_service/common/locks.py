@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a95a11163bf0c434743a3e844ab524d86f6cc163b84abb18ef9fde4c9abc849c
-size 316
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from enum import Enum
+
+
+class RequestedLockType(str, Enum):
+    RW = "rw"
+    RO = "ro"
+    RW_OR_RO = "rw_or_ro"
+
+
+class GrantedLockType(str, Enum):
+    RW = "rw"
+    RO = "ro"

@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:bcbf04523e66d9d545736454e274f7669b57864d24f789185aeee30245faa512
-size 349
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+pub mod addressed_router;
+pub mod http_router;
+pub mod nats_client;
+pub mod push_router;
+
+// Unified request plane interface and implementations
+pub mod tcp_client;
+pub mod unified_client;
+
+use super::*;

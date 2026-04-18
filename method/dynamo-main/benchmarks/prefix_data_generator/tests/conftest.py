@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c798f6b8ad000d2c0ae91e1886dd31ce58f3715057399774858d702dbd5a5132
-size 424
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Skip collection of tests in this directory - they require dependencies
+# not available in the main dynamo test environment.
+collect_ignore = [
+    "test_synthesizer.py",
+    "test_sampler.py",
+    "test_roundtrip_hashes.py",
+    "mock_server.py",  # Not a test, just a utility
+]

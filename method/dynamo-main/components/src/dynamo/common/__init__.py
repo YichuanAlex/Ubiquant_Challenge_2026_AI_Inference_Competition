@@ -1,3 +1,27 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:548b0837c0f1306c205bcb8d2214566a8014f3e9f6f6379e5302563877ecfbb3
-size 810
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Dynamo Common Module
+
+This module contains shared utilities and components used across multiple
+Dynamo backends and components.
+
+Main submodules:
+    - config_dump: Configuration dumping and system diagnostics utilities
+    - utils: Common utilities including environment and prometheus helpers
+"""
+
+from dynamo.common import config_dump, constants, utils
+
+try:
+    from ._version import __version__
+except Exception:
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        __version__ = _pkg_version("ai-dynamo")
+    except Exception:
+        __version__ = "0.0.0+unknown"
+
+__all__ = ["__version__", "config_dump", "constants", "utils"]

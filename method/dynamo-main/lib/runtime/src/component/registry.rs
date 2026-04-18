@@ -1,3 +1,26 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e0a1dd720dc6719b863a1f26eef6d80215baf228d6619d547a790c344ba2c8ff
-size 561
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use anyhow::Result;
+use async_once_cell::OnceCell;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
+use tokio::sync::Mutex;
+
+use crate::component::{Registry, RegistryInner};
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Registry {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(RegistryInner::default())),
+        }
+    }
+}

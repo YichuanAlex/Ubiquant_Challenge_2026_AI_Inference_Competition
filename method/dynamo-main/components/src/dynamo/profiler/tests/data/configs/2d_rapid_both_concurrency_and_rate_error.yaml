@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cd5a646cde3dc44bf5348848f81f4b5301cb718fdad90ce9e9c3647336f003b4
-size 450
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Case 2d: Both concurrency and requestRate specified — should fail validation
+model: "Qwen/Qwen3-32B"
+backend: trtllm
+image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:latest"
+hardware:
+  gpuSku: h200_sxm
+  totalGpus: 64
+  numGpusPerNode: 8
+workload:
+  concurrency: 50
+  requestRate: 5.0
+sla:
+  itl: 50.0

@@ -1,3 +1,47 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5f8aa35c48ccf1aa3c6a31a9c28674eb5254a2aeadd2226b57ede2398483143a
-size 1508
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import asyncio
+
+import uvloop
+
+from dynamo.runtime import DistributedRuntime, dynamo_worker
+
+uvloop.install()
+
+
+class RequestHandler:
+    def __init__(self, next):
+        self.next = next
+
+    async def generate(self, request):
+        request = f"{request} front"
+        async for output in await self.next.round_robin(request):
+            yield output.get("data")
+
+
+@dynamo_worker()
+async def worker(runtime: DistributedRuntime):
+    # client to the next component - in this case the middle component
+    next = await runtime.endpoint("examples/pipeline.middle.generate").client()
+
+    # create endpoint service for frontend component
+    endpoint = runtime.endpoint("examples/pipeline.frontend.generate")
+
+    handler = RequestHandler(next)
+    await endpoint.serve_endpoint(handler.generate)
+
+
+asyncio.run(worker())

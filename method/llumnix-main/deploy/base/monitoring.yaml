@@ -1,3 +1,84 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b10f9a32b890e57297e324d99fbe460870588650308e34f8d289a5901170cf35
-size 2322
+# ServiceMonitor: scrape gateway (port 8089) and scheduler (port 8088) metrics.
+# Requires Prometheus Operator CRDs (monitoring.coreos.com/v1).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: llumnix-control-plane
+  labels:
+    app.kubernetes.io/part-of: llumnix
+spec:
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - gateway
+          - scheduler
+  endpoints:
+    # Gateway exposes metrics on port 8089 (named "http" in Service)
+    - port: http
+      interval: 10s
+      path: /metrics
+---
+# PodMonitor: scrape neutral engine pods.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llumnix-engine-neutral
+  labels:
+    app.kubernetes.io/part-of: llumnix
+spec:
+  selector:
+    matchLabels:
+      leaderworkerset.sigs.k8s.io/name: neutral
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_infer_type]
+          targetLabel: infer_type
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_model]
+          targetLabel: model
+---
+# PodMonitor: scrape prefill engine pods.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llumnix-engine-prefill
+  labels:
+    app.kubernetes.io/part-of: llumnix
+spec:
+  selector:
+    matchLabels:
+      leaderworkerset.sigs.k8s.io/name: prefill
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_infer_type]
+          targetLabel: infer_type
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_model]
+          targetLabel: model
+---
+# PodMonitor: scrape decode engine pods.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llumnix-engine-decode
+  labels:
+    app.kubernetes.io/part-of: llumnix
+spec:
+  selector:
+    matchLabels:
+      leaderworkerset.sigs.k8s.io/name: decode
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 10s
+      path: /metrics
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_infer_type]
+          targetLabel: infer_type
+        - sourceLabels: [__meta_kubernetes_pod_label_llumnix_io_model]
+          targetLabel: model

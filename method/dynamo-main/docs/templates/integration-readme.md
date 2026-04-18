@@ -1,3 +1,50 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7a002ea318135e6f54f0c71c74c8b779e048bec0a74070070d2db23444f21835
-size 1332
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: Integration README
+---
+
+{/* 2-3 sentence overview of this external integration */}
+
+## Version Compatibility
+
+| Dynamo | `<Integration>` | Notes |
+|--------|---------------|-------|
+| 0.9.x | 1.2.x | Recommended |
+| 0.8.x | 1.1.x | |
+
+## Backend Support
+
+| Backend | Status | Notes |
+|---------|--------|-------|
+| vLLM | ✅ | |
+| SGLang | 🚧 | |
+| TensorRT-LLM | ❌ | |
+
+## Quick Start
+
+```bash
+# Add installation and usage from existing integration docs
+# Example pattern (LMCache):
+# python -m dynamo.vllm --model <model> --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'
+```
+
+## Configuration
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| {/* param */} | {/* default */} | {/* description */} |
+
+## Guides
+
+| Document | Path | Description |
+|----------|------|-------------|
+| `<Integration> Setup` | `<integration>_setup.md` | Installation and configuration |
+| `<Integration> with vLLM` | `<integration>_vllm.md` | vLLM-specific usage |
+
+{/* Convert table rows to markdown links */}
+
+## External Resources
+
+- [`<Integration>` Documentation](https://...)
+- [`<Integration>` GitHub](https://github.com/...)

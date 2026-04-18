@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:83556502414e53822baaa4eeb195c0adde38fbda53a06539bcee33e8c732f6d2
-size 143
+sphinx==7.4.7
+sphinx-book-theme
+sphinxcontrib-mermaid
+myst-parser
+sphinx-copybutton
+sphinx-autodoc2
+sphinx-design
+sphinx-togglebutton
+requests

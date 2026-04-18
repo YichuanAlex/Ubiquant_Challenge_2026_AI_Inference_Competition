@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:442cccb9ac52ee9acdede64575816bc602250a2b967c8ac1e2b74fd3fc648566
-size 163
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../base
+  - decode.yaml
+  - prefill.yaml
+  - gateway.yaml
+  - scheduler.yaml

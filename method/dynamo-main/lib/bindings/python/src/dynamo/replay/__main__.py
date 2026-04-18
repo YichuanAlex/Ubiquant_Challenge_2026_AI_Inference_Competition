@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:dfadf65a67fd79276325292626d7c1ad7d143ef97d4f1ec1ed8ab2be28c1caf1
-size 236
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from dynamo.replay.main import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

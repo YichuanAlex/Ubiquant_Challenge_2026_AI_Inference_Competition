@@ -1,3 +1,37 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:dba8a9a7f2f72f694cfb8aeb5782636c6502477853d1f4a94e8b24246c14aeb4
-size 987
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use dynamo_kv_router::protocols::KvCacheEvent;
+use uuid::Uuid;
+
+use crate::common::protocols::OutputSignal;
+use crate::loadgen::ReplayRequestHashes;
+
+#[derive(Debug, Clone)]
+pub struct ReplayTimedRequest {
+    pub uuid: Uuid,
+    pub timestamp_us: u64,
+    pub scheduled_ready_at_ms: f64,
+    pub input_length: usize,
+    pub output_length: usize,
+    pub replay_hashes: ReplayRequestHashes,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplayTimedOutputSignal {
+    pub signal: OutputSignal,
+    pub timestamp_us: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplayTimedKvEvent {
+    pub event: KvCacheEvent,
+    pub timestamp_us: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReplayWorkerArtifacts {
+    pub requests: Vec<ReplayTimedRequest>,
+    pub output_signals: Vec<ReplayTimedOutputSignal>,
+    pub kv_events: Vec<ReplayTimedKvEvent>,
+}

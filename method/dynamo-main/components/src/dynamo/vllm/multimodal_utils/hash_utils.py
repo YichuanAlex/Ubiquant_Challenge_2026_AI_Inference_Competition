@@ -1,3 +1,34 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fd01af386ecd7d752b85d0c91c81032217594c60f9d2e6810f085f860eefcb6a
-size 903
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+import logging
+from typing import Any, Sequence
+
+import blake3
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+def image_to_bytes(img: Any) -> bytes:
+    """Convert a supported image object to PNG bytes for hashing."""
+    from PIL import Image
+
+    if isinstance(img, bytes):
+        return img
+
+    if isinstance(img, Image.Image | np.ndarray):
+        return img.tobytes()
+
+    raise TypeError(f"Unsupported image type for hashing: {type(img)}")
+
+
+def compute_mm_uuids_from_images(images: Sequence[Any]) -> list[str]:
+    """
+    Compute blake3 hex UUIDs for image inputs.
+    """
+    uuids: list[str] = []
+    for img in images:
+        raw_bytes = image_to_bytes(img)
+        uuids.append(blake3.blake3(raw_bytes).hexdigest())
+    return uuids

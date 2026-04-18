@@ -1,3 +1,40 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f7476bc83f46bc6c2bcdc5c017f1d307db87a69ebf8c7ddd65b19c45f1b4566f
-size 988
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Dynamo Common Utils Module
+
+This module contains shared utility functions used across multiple
+Dynamo backends and components.
+
+Submodules:
+    - endpoint_types: Endpoint type parsing utilities
+    - nvtx_utils: NVTX profiling wrappers (enable with DYN_NVTX=1; no-ops by default)
+    - otel_tracing: OpenTelemetry tracing header utilities
+    - paths: Workspace directory detection and path utilities
+    - prometheus: Prometheus metrics collection and logging utilities
+"""
+
+from dynamo.common.utils import (
+    endpoint_types,
+    engine_response,
+    namespace,
+    nvtx_utils,
+    otel_tracing,
+    paths,
+    prometheus,
+    runtime,
+    time_section,
+)
+
+__all__ = [
+    "endpoint_types",
+    "engine_response",
+    "namespace",
+    "nvtx_utils",
+    "otel_tracing",
+    "time_section",
+    "paths",
+    "prometheus",
+    "runtime",
+]

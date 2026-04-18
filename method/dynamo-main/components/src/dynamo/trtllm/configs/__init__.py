@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a3ec5ad2d26a720df7a028df8b37b82369fae9ea4d28911a53f3f589c953f940
-size 407
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Configuration classes for TensorRT-LLM backend.
+
+This module provides configuration dataclasses:
+- DiffusionConfig: Configuration for diffusion model workers
+"""
+
+from dynamo.trtllm.configs.diffusion_config import DiffusionConfig
+
+__all__ = ["DiffusionConfig"]

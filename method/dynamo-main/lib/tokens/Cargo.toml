@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f8e1f7860669bfbbf42aa4ef6939ce440f90783432ab90f776e82e3e0f685812
-size 586
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+
+[package]
+name = "dynamo-tokens"
+description = "Token management tools"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dashmap = { workspace = true }
+derive-getters = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+xxhash-rust = { workspace = true }
+bs58 = "0.5"
+
+bytemuck = "1.22"

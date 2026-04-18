@@ -1,3 +1,27 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ecc313f641f1f5e6f0fe87dfbcb6074d17772c4b53f48f07959a7a152b425dda
-size 786
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Base ArgGroup interface."""
+import argparse
+from abc import ABC, abstractmethod
+
+
+class ArgGroup(ABC):
+    """
+    Base interface for configuration groups.
+
+    Each ArgGroup represents a domain of configuration parameters with clear ownership.
+    """
+
+    @abstractmethod
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """
+        Register CLI arguments owned by this group.
+
+        This method must be side-effect free beyond parser mutation.
+        It must not depend on runtime state or other groups.
+
+        Args:
+            parser: argparse.ArgumentParser or argument group
+        """
+        ...

@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4c90d1d98e0a941392f10838fc980dfcbceb897722c12c0fc4506a2f100ddeac
-size 493
+syntax = "proto3";
+
+package resolver;
+
+option go_package = "./;resolver";
+
+message PodDiscoveryInfo {
+  string pod_name = 1;
+  int64 timestamp_ms = 3;
+  repeated InstanceDiscoveryInfo instances = 4;
+}
+
+message InstanceDiscoveryInfo {
+  string instance_type = 1; // prefill, decode or neutral
+  string entrypoint_ip = 2;
+  int32 entrypoint_port = 3;
+  string kv_transfer_ip = 4;
+  int32 kv_transfer_port = 5;
+  int32 dp_rank = 6;
+  int32 dp_size = 7;
+  string model = 8;
+  int64 version = 9;
+}

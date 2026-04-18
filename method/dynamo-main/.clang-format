@@ -1,3 +1,38 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5197ed948859674ff79dc3c35fed232c373cd68dfc7aef04314b150a954ee9a3
-size 791
+---
+BasedOnStyle: Google
+
+IndentWidth: 2
+ColumnLimit: 120
+ContinuationIndentWidth: 4
+UseTab: Never
+MaxEmptyLinesToKeep: 2
+
+SortIncludes: true
+CompactNamespaces: true
+ReflowComments: true
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+
+AllowShortIfStatementsOnASingleLine: false
+AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Inline
+
+AlwaysBreakAfterReturnType: TopLevelDefinitions
+AlignAfterOpenBracket: AlwaysBreak
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  BeforeCatch: true
+
+BinPackArguments: true
+BinPackParameters: true
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+
+IndentCaseLabels: true

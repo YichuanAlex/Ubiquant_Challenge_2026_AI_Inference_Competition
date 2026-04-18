@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:db4eda83976648360e084c37cb690934886977c67ebcc9c62a3c993c06d2b5fc
-size 304
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+backend: _autodeploy
+kv_cache_config:
+  enable_partial_reuse: false
+  free_gpu_memory_fraction: 0.80
+  max_tokens: 8192
+attn_backend: trtllm
+max_batch_size: 128

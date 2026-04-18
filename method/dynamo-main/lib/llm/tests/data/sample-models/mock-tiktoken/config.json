@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8c5bbdec1b65bba5d901c974e0d5ff8d0aa36251711eed39d6f97ba5c8e594d6
-size 149
+{
+  "model_type": "kimi",
+  "max_position_embeddings": 32768,
+  "architectures": ["KimiForCausalLM"],
+  "eos_token_id": [370],
+  "vocab_size": 375
+}

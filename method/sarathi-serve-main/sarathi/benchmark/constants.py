@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ba179970782390c26a26159efced77b4f2dd508c3803d95228195b112f8c4c57
-size 261
+import os
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_CONFIG_FILE = f"{ROOT_DIR}/config/default.yml"
+
+LOGGER_FORMAT = (
+    "[%(asctime)s][%(filename)s:%(lineno)d:%(funcName)s]" "[%(levelname)s] %(message)s"
+)
+LOGGER_TIME_FORMAT = "%H:%M:%S"

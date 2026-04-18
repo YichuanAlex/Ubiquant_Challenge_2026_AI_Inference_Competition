@@ -1,3 +1,46 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:92ca446bf8657f131b89cdb17502efcc7fe3aa3bf1a5d7b674d32b37debc368a
-size 870
+name: PR Test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request_target:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  go-ut:
+    name: Go Unit Tests
+    uses: ./.github/workflows/ut-gateway-and-scheduler.yml
+    secrets: inherit
+
+  llumnix-ut:
+    name: Python llumnix Unit Tests
+    uses: ./.github/workflows/ut-llumnix.yml
+    secrets: inherit
+
+  discovery-ut:
+    name: Python discovery Unit Tests
+    uses: ./.github/workflows/ut-discovery.yml
+    secrets: inherit
+
+  local-e2e-test:
+    name: Local E2E Test
+    uses: ./.github/workflows/local-e2e-test.yml
+    secrets: inherit
+
+  all-pr-tests:
+    name: All PR Tests
+    runs-on: [self-hosted, cpu]
+    needs:
+      - go-ut
+      - llumnix-ut
+      - discovery-ut
+      - local-e2e-test
+    steps:
+      - name: All tests passed
+        run: echo "All tests passed!"
+

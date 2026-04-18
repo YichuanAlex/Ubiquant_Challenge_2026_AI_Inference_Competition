@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4c45262a3df11e22f31c19c5a80ba37311f4b76841434e2c51a868d91c8e4679
-size 486
+import logging
+
+
+class NewLineFormatter(logging.Formatter):
+    """Adds logging prefix to newlines to align multi-line messages."""
+
+    def __init__(self, fmt, datefmt=None, style="%"):
+        logging.Formatter.__init__(self, fmt, datefmt, style)
+
+    def format(self, record):
+        msg = logging.Formatter.format(self, record)
+        if record.message != "":
+            parts = msg.split(record.message)
+            msg = msg.replace("\n", "\r\n" + parts[0])
+        return msg

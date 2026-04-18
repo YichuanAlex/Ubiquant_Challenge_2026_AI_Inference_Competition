@@ -1,3 +1,37 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ce080c8d67fd09e8c7d72e914cf89416c0f48eed13a9ec71495c55a59f57d7b1
-size 777
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: "your-storage-class-name"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: compilation-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: "your-storage-class-name"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: perf-cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: "your-storage-class-name"

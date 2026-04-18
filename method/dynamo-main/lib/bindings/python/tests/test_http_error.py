@@ -1,3 +1,41 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4ed6dca568ac1e7a2ab61603c827d88e9141950e4d8174c4a193a4535ce23328
-size 1078
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+import pytest
+
+from dynamo.llm import HttpError
+
+pytestmark = [
+    pytest.mark.gpu_0,
+    pytest.mark.parallel,
+    pytest.mark.pre_merge,
+    pytest.mark.unit,
+]
+
+
+def test_raise_http_error():
+    with pytest.raises(HttpError):
+        raise HttpError(404, "Not Found")
+    with pytest.raises(Exception):
+        raise HttpError(500, "Internal Server Error")
+
+
+def test_invalid_http_error_code():
+    with pytest.raises(ValueError):
+        HttpError(1700, "Invalid Code")
+
+
+def test_invalid_http_error_message():
+    with pytest.raises(ValueError):
+        # The second argument must be a string, not bytes.
+        HttpError(400, b"Bad Request")
+
+
+def test_long_http_error_message():
+    message = ("A" * 8192) + "B"
+    error = HttpError(400, message)
+    assert len(error.message) == 8192
+
+    # Ensure the exception string uses the truncated message too.
+    assert message[:8189] in str(error)
+    assert "B" not in str(error)

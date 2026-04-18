@@ -1,3 +1,22 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:494e4f813e67ae13cec4944a9c0f7965e8355325a1a0b0e09d4eb66d72a028da
-size 703
+// SPDX-FileCopyrightText: Copyright (c) 2022-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RequestTemplate {
+    pub model: String,
+    pub temperature: f32,
+    pub max_completion_tokens: u32,
+}
+
+impl RequestTemplate {
+    pub fn load(path: &Path) -> Result<Self> {
+        let template = std::fs::read_to_string(path)?;
+        let template: Self = serde_json::from_str(&template)
+            .inspect_err(|err| crate::log_json_err(&path.display().to_string(), &template, err))?;
+        Ok(template)
+    }
+}

@@ -1,3 +1,22 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:166b3d8c657dfcd847eb0e5e7b245515a92e81474962869d4c66e944a1b8e420
-size 465
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+
+availabilityZones:
+${EKS_CP_AZS}
+
+autoModeConfig:
+  enabled: true
+
+addonsConfig:
+  disableDefaultAddons: true
+
+addons:
+  - name: aws-efs-csi-driver
+    version: latest
+    useDefaultPodIdentityAssociations: true

@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:dba2bc935e22e9c4483d1d759b3faea6731bee9c91f4572c635f533e341122fc
-size 133
+# Compiled library
+*.so
+*.o
+*.a
+
+# Build artifacts
+*.dylib
+*.dll
+
+# Editor files
+*.swp
+*~
+.DS_Store
+
+# Test outputs
+test_output.txt
+

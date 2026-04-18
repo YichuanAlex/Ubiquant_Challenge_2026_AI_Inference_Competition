@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d4d3c7847678b3d3b94c5990c6a4d3c0cd1ba0e1e90a5bf8e02f1bb67dc9b978
-size 543
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use dynamo_runtime::{DistributedRuntime, Runtime, Worker, logging};
+use system_metrics::backend;
+
+fn main() -> anyhow::Result<()> {
+    logging::init();
+    let worker = Worker::from_settings()?;
+    worker.execute(app)
+}
+
+async fn app(runtime: Runtime) -> anyhow::Result<()> {
+    let distributed = DistributedRuntime::from_settings(runtime.clone()).await?;
+    backend(distributed, None).await
+}

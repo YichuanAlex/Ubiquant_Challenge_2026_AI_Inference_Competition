@@ -1,3 +1,30 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d3fe140af3ea68c71934a9b154d6933b732495c45256cb746e46dcd9ecff2a4b
-size 958
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# ASSUMPTION: dynamo and its dependencies are properly installed
+# i.e. nats and etcd are running
+
+# Overview:
+# This script deploys dynamo with LMCache enabled on port 8000
+# Used for LMCache correctness testing
+set -e
+trap 'echo Cleaning up...; kill 0' EXIT
+# Arguments:
+MODEL_URL=$1
+
+if [ -z "$MODEL_URL" ]; then
+    echo "Usage: $0 <MODEL_URL>"
+    echo "Example: $0 Qwen/Qwen3-0.6B"
+    exit 1
+fi
+
+echo "🚀 Starting dynamo setup with LMCache:"
+echo "   Model: $MODEL_URL"
+echo "   Port: 8000"
+echo "   !! Remmber to kill the old dynamo processes other wise the port will be busy !! "
+echo "🔧 Starting dynamo worker with LMCache enabled..."
+
+python -m dynamo.frontend &
+
+python3 -m dynamo.vllm --model $MODEL_URL --kv-transfer-config '{"kv_connector":"LMCacheConnectorV1","kv_role":"kv_both"}'

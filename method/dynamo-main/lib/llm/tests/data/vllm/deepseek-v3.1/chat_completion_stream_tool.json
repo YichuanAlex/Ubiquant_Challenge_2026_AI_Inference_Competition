@@ -1,3 +1,41 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:46fa2bb636facf5f6c1e62a6ce9cefe1142c90b2ea7f62843ce59eb911bb7f69
-size 4135
+{
+  "request_id": "deepseek-v3.1-tool-call-test",
+  "expected_output": {
+    "normal_content": "",
+    "reasoning_content": "The user wants to check the weather in Beijing and Shanghai, I need to call the get_current_weather tool to get this information.",
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "type": "function",
+        "function": {
+          "name": "get_current_weather",
+          "arguments": "{\"location\": \"Beijing\", \"format\": \"celsius\"}"
+        }
+      },
+      {
+        "id": "call_2",
+        "type": "function",
+        "function": {
+          "name": "get_current_weather",
+          "arguments": "{\"location\": \"Shanghai\", \"format\": \"celsius\"}"
+        }
+      }
+    ]
+  },
+  "input_stream": [
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<think>The user wants to check the weather in Beijing and Shanghai, I need to call the get_current_weather tool to get this information.</think>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":"The user wants to check the weather in Beijing and Shanghai, I need to call the get_current_weather tool to get this information."}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁calls▁begin｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁call▁begin｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"get_current_weather","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁sep｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"{\"location\": \"Beijing\", \"format\": \"celsius\"}","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁call▁end｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁call▁begin｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"get_current_weather","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁sep｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"{\"location\": \"Shanghai\", \"format\": \"celsius\"}","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁call▁end｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":"<｜tool▁calls▁end｜>","function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null}}]}},
+    {"data":{"id":"chatcmpl-deepseek-v3.1-tool","choices":[{"index":0,"delta":{"content":null,"function_call":null,"tool_calls":null,"role":"assistant","refusal":null,"reasoning_content":null},"finish_reason":"tool_calls"}]}}
+  ]
+}

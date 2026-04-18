@@ -1,3 +1,27 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1d1895b23ee9d7fd85e8af5a6c0d618817b691867115ed9111d2b519d7d7f483
-size 785
+#!/bin/bash
+set -e
+
+CUSTOM_IMAGE=""
+
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --image) CUSTOM_IMAGE="$2"; shift ;;
+        *) echo "Unknown parameter: $1"; echo "Usage: $0 [--image <dev-image>]"; exit 1 ;;
+    esac
+    shift
+done
+
+DEFAULT_IMAGE="llumnix-registry.cn-beijing.cr.aliyuncs.com/llumnix/vllm:dev-20260326-165612"
+IMAGE="${CUSTOM_IMAGE:-${DEFAULT_IMAGE}}"
+
+echo "Building wheel package..."
+
+docker run --rm \
+  --network host \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  "$IMAGE" \
+  bash -c "cd ./python/discovery && rm -rf dist && pip install 'grpcio-tools>=1.62.0' && make proto && pip install -r requirements.txt && SKIP_PROTO=1 python3 setup.py bdist_wheel"
+
+echo "✓ Build completed"
+echo "Generated wheel package: $(ls -1 ./python/discovery/dist/*.whl)"

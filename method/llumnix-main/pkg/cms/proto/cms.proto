@@ -1,3 +1,93 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:520df6718c6258d99f1cbbf316fc21d608c577f8672d908cd53859b5cdbbd91b
-size 2731
+syntax = "proto3";
+
+package cms;
+
+option go_package = "./;cms";
+
+message InstanceMetadata {
+  // engine meta
+  string instance_id = 1;
+  string instance_type = 2;
+  string backend_type = 3;
+
+  // hardware meta
+  string ip = 4;
+  string ip_kvs = 5;
+  int32 api_server_port = 6;
+  int32 llumlet_port = 7;
+  int32 kvt_port = 8;
+  string node_id = 9;
+
+  // parallel meta
+  int32 data_parallel_size = 10;
+  int32 tensor_parallel_size = 11;
+  string unit_id = 12;
+  int32 dp_rank = 13;
+  int32 ep_rank = 14;
+  int32 dp_local_rank = 15;
+
+  double utc_create = 16;
+  double utc_update = 17;
+
+  string ip_kvt = 18;
+  int32 block_size = 19;
+
+  int32 max_num_batched_tokens = 20;
+}
+
+message InstanceStatus {
+  string instance_id = 1;
+
+  // step loop status
+  bool schedulable = 2;
+  int64 timestamp_ms = 3;
+  int32 step_id = 4;
+  int32 update_id = 5;
+
+  // status for updating instance status local account
+  repeated string recent_waiting_requests = 6;
+  repeated string waiting_requests = 7;
+
+  // num requests status
+  int32 hybrid_scheduler_waiting_to_decode_requests_num = 8;
+  int32 scheduler_waiting_to_decode_requests_num = 9;
+  int32 num_waiting_requests = 10;
+  int32 scheduler_running_to_decode_requests_num = 11;
+  int32 num_running_requests = 12;
+  int32 num_loading_requests = 13;
+
+  // num tokens status from kv manager
+  int32 num_total_gpu_tokens = 14;
+  int32 num_used_gpu_tokens = 15;
+
+  // num tokens status from scheduler and hybrid scheduler
+  int32 num_uncomputed_tokens_hybrid_scheduler_waiting_prefills = 16;
+  int32 num_unallocated_tokens_hybrid_scheduler_waiting_decodes = 17;
+  int32 hybrid_scheduler_waiting_to_decode_tokens_num = 18;
+  int32 num_uncomputed_tokens_scheduler_waiting_prefills = 19;
+  int32 scheduler_waiting_to_decode_tokens_num = 20;
+  int32 num_uncomputed_tokens_scheduler_running_prefills = 21;
+  int32 num_unallocated_tokens_scheduler_running_prefills = 22;
+  int32 scheduler_running_to_decode_tokens_num = 23;
+  int32 num_tokens_loading_requests = 24;
+  int32 num_uncomputed_tokens_all_waiting_prefills = 25;
+
+  // migration status
+  int32 num_migrate_in_reqs = 26;
+  int32 num_migrate_out_reqs = 27;
+  int32 num_available_migrate_in_slots = 28;
+  int32 num_available_migrate_out_slots = 29;
+  int32 num_migrate_in_tokens = 30;
+  int32 num_migrate_out_tokens = 31;
+  int32 num_available_migrate_in_tokens = 32;
+  int32 num_available_migrate_out_tokens = 33;
+  double kv_cache_usage_ratio_migrate_in = 34;
+  double kv_cache_usage_ratio_migrate_out = 35;
+  double available_kv_cache_usage_ratio_migrate_in = 36;
+  double available_kv_cache_usage_ratio_migrate_out = 37;
+
+  // profiling status
+  int32 profiling_id = 38;
+  double step_duration = 39;
+  int32 num_scheduled_prefill_tokens = 40;
+}

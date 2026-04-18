@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9881cbbc937de3b1f4379d642924ffc6a26fed04cef5cedbb67846ebec4328fc
-size 782
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# ASSUMPTION: dynamo and its dependencies are properly installed
+# i.e. nats and etcd are running
+
+# Overview:
+# This script deploys dynamo without LMCache on port 8000
+# Used as baseline for correctness testing
+set -e
+trap 'echo Cleaning up...; kill 0' EXIT
+# Arguments:
+MODEL_URL=$1
+
+if [ -z "$MODEL_URL" ]; then
+    echo "Usage: $0 <MODEL_URL>"
+    echo "Example: $0 Qwen/Qwen3-0.6B"
+    exit 1
+fi
+
+echo "🚀 Starting dynamo setup without LMCache:"
+echo "   Model: $MODEL_URL"
+echo "   Port: 8000"
+echo "🔧 Starting dynamo worker without LMCache..."
+
+python -m dynamo.frontend &
+python3 -m dynamo.vllm --model $MODEL_URL

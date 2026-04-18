@@ -1,3 +1,21 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8379347776fc582ad99d471b64220419b547114841c5999dfbc99d9fb87c417f
-size 351
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "identity"
+backend: "identity"
+max_batch_size: 1
+
+input [
+  {
+    name: "INPUT0"
+    data_type: TYPE_INT32
+    dims: [-1]
+  }
+]
+output [
+  {
+    name: "OUTPUT0"
+    data_type: TYPE_INT32
+    dims: [-1]
+  }
+]

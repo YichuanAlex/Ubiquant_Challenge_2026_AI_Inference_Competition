@@ -1,3 +1,38 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:203c45bda8ff15ad1ddc7c3b32757863e8ddd2adee3466761633f107262849a9
-size 757
+syntax = "proto3";
+package llumlet;
+
+option go_package = "./;llumlet";
+
+service Llumlet {
+  rpc Migrate(MigrateRequest) returns (MigrateResponse) {}
+  rpc Abort(AbortRequests) returns (AbortResponse) {}
+}
+
+message MigrateRequest {
+  string src_engine_id = 1;
+  string dst_engine_id = 2;
+  string dst_engine_ip = 3;
+  int32 dst_engine_port = 4;
+  string migration_type = 5;
+  string migration_req_policy = 6;
+  oneof migration_value {
+    int64 num_reqs = 7;
+    int64 num_tokens = 8;
+    float kv_cache_usage_ratio = 9;
+  }
+  string trigger_policy = 10;
+}
+
+message MigrateResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message AbortRequests {
+  repeated string request_ids = 1;
+}
+
+message AbortResponse {
+  bool success = 1;
+  string message = 2;
+}

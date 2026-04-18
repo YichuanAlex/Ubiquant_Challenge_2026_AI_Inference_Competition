@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d613f009952fc5998c0d2430af421e7d32900119bc347e461307cc9fa7508316
-size 548
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Mock LLM scheduler and KV manager for testing.
+//!
+//! This crate provides a mock implementation of an LLM scheduler that simulates
+//! KV cache management, request scheduling, and token generation timing without
+//! requiring actual GPU resources or a full distributed runtime.
+
+pub mod cache;
+pub mod common;
+pub mod engine;
+pub mod kv_manager;
+pub mod loadgen;
+pub mod replay;
+pub mod scheduler;

@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:3f2a1b086267ccb056ac9150127fdb8dfdb3723ae61d40a590029a9b1cd41302
-size 111
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - redis.yaml
+  - monitoring.yaml

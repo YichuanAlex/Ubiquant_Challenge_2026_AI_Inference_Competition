@@ -1,3 +1,21 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d6e76619e7e35f655a0184fadb5577d5034e8762c3e295fed02ae65b2302ce29
-size 421
+{
+  "eos_token": "<|im_end|>",
+  "added_tokens_decoder": {
+    "248044": {
+      "content": "<|endoftext|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "248046": {
+      "content": "<|im_end|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  }
+}

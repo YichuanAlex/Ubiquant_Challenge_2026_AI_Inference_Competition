@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:91b3d5514467dc95e5fa8705f3fbc4aa6000e13bd720920d820131ac523dd2d9
-size 399
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "hello_world"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+
+[dependencies]
+dynamo-runtime = { workspace = true }
+
+# third-party
+anyhow = { workspace = true }

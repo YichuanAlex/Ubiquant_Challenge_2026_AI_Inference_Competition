@@ -1,3 +1,53 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9a4f1343a3661b4f38cb896ed38d00692db84f06e85ef6c210f089df44697cc8
-size 764
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: Component Examples
+---
+
+Usage examples for the `<Component>`.
+
+## Basic Examples
+
+### Example 1: {/* Title */}
+
+```bash
+# Add example from existing docs
+```
+
+### Example 2: {/* Title */}
+
+```python
+# Add example from existing docs
+```
+
+## Kubernetes Examples
+
+### Minimal Deployment
+
+```yaml
+# Add minimal DGDR from existing docs
+```
+
+### Production Deployment
+
+```yaml
+# Add production DGDR from existing docs
+```
+
+## Advanced Examples
+
+### {/* Advanced Use Case Title */}
+
+{/* Description */}
+
+```bash
+# Add example
+```
+
+## Sample Configurations
+
+### config-minimal.yaml
+
+```yaml
+# Add from existing docs
+```

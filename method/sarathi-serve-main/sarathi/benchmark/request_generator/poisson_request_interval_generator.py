@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d521fe38eb22f756d077f1003b969ce1670b66fdf2bdb43b17e3c7e18a2deff0
-size 722
+import math
+import random
+
+from sarathi.benchmark.config import PoissonRequestIntervalGeneratorConfig
+from sarathi.benchmark.request_generator.base_request_interval_generator import (
+    BaseRequestIntervalGenerator,
+)
+
+
+class PoissonRequestIntervalGenerator(BaseRequestIntervalGenerator):
+
+    def __init__(self, config: PoissonRequestIntervalGeneratorConfig):
+        super().__init__(config)
+
+        self.qps = self.config.qps
+        self.std = 1.0 / self.qps
+        self.max_interval = self.std * 3.0
+
+    def get_next_inter_request_time(self) -> float:
+        next_interval = -math.log(1.0 - random.random()) / self.qps
+        next_interval = min(next_interval, self.max_interval)
+
+        return next_interval

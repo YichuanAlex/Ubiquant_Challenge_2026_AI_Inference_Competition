@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:78d52b96405de07dabc8dd7831b4220e7851ea7deafb762b49b5fed34072ae9e
-size 246
+---
+source: tests/openai_completions.rs
+description: "should have prompt, model, and frequency_penalty fields"
+expression: sample.request
+---
+{
+  "frequency_penalty": -2.0,
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?"
+}

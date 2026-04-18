@@ -1,3 +1,63 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:80b9c504d1f5273f2f64a51bb1871d4fcbf851596c3f8020adff6ca7d9b40eb6
-size 1986
+name: Python llumnix Unit Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  DEV_IMAGE: llumnix-registry.cn-beijing.cr.aliyuncs.com/llumnix/vllm:dev-20260326-165612
+
+jobs:
+  # ── cms tests ────────────────────────────────────────────────────────────
+  llumnix-cms-test:
+    name: llumnix CMS Tests
+    runs-on: [self-hosted, cpu]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+
+      - name: Run cms tests in dev container
+        run: |
+          docker run --rm \
+            --network host \
+            -v "$(pwd):/workspace" \
+            -w /workspace/python/llumnix \
+            ${{ env.DEV_IMAGE }} \
+            bash -c "make vllm_install && make cms_test"
+
+      - name: Fix file ownership
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) .
+
+  # ── llumlet tests ─────────────────────────────────────────────────────────
+  llumnix-llumlet-test:
+    name: llumnix Llumlet Tests
+    runs-on: [self-hosted, cpu]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+
+      - name: Run llumlet tests in dev container
+        run: |
+          docker run --rm \
+            --network host \
+            -v "$(pwd):/workspace" \
+            -w /workspace/python/llumnix \
+            ${{ env.DEV_IMAGE }} \
+            bash -c "make vllm_install && make llumlet_test"
+
+      - name: Fix file ownership
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) .

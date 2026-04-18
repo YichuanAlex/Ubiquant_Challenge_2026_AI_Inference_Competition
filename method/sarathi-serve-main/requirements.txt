@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:881157ae8c609e7860920a1908a0ca8a603b67ddf303795ea313bd71359a73bd
-size 485
+ninja  # For faster builds.
+psutil
+ray >= 2.5.1
+pandas  # Required for Ray data.
+pyarrow  # Required for Ray data.
+sentencepiece  # Required for LLaMA tokenizer.
+numpy
+torch==2.9.0
+torch
+transformers >= 4.37.0  # Required for Mistral.
+matplotlib
+plotly_express
+seaborn
+wandb
+kaleido
+ddsketch
+jupyterlab
+flashinfer-python==0.4.1
+flashinfer-python
+pillow
+tiktoken
+grpcio
+grpcio-tools  # For protobuf compilation
+protobuf>=4.21.0  # For protobuf serialization
+uvicorn
+fastapi
+openai
+tqdm

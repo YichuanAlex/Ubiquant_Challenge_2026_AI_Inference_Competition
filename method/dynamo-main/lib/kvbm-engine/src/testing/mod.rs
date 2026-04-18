@@ -1,3 +1,24 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4eddce64b66c753c29ab93a9cc09c36d6c2d13f72cc6086ff1c0f581d3553abb
-size 938
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+#![doc = include_str!("../../docs/testing.md")]
+
+pub mod distributed;
+pub mod events;
+pub mod managers;
+pub mod messenger;
+pub mod offloading;
+pub mod physical;
+pub mod token_blocks;
+
+// Re-export commonly used testing utilities
+pub use distributed::TestSession;
+pub use events::{EventsPipelineConfig, EventsPipelineConfigBuilder, EventsPipelineFixture};
+pub use managers::{
+    InstancePopulationResult, InstancePopulationSpec, MultiInstancePopulator,
+    MultiInstancePopulatorBuilder, PopulatedInstances, TestManagerBuilder, TestRegistryBuilder,
+    create_and_populate_manager, populate_manager_with_blocks,
+};
+pub use messenger::{MessengerPair, create_messenger_pair_tcp, create_messenger_tcp};
+pub use physical::{TestAgent, TestAgentBuilder, TransferChecksums};
+pub use token_blocks::*;

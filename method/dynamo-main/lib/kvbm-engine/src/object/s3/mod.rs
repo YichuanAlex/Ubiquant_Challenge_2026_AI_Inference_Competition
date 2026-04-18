@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:99c42c5f95509d5db4536c3e1ca2d0f9bc20d0d824651feeb9968b540ee20229
-size 756
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! S3-compatible object storage implementations.
+//!
+//! This module contains all S3-specific implementations:
+//! - [`S3ObjectBlockClient`] - Implements [`super::ObjectBlockOps`] for S3/MinIO
+//! - [`S3LockManager`] - Implements [`super::ObjectLockManager`] for distributed locking
+//!
+//! All types in this module are feature-gated behind `s3`. Consumers should use
+//! the factory functions in the parent [`object`](super) module to create trait
+//! objects without needing to depend on the `s3` feature.
+
+mod client;
+mod lock;
+
+pub use client::{S3Config, S3ObjectBlockClient};
+pub use lock::S3LockManager;

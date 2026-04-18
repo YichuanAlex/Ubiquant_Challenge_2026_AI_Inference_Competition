@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4c47a9e7865e569ee0e09a9e9b4b93dbe1d8d5ddf919439fac443ff478cc4d97
-size 583
+from sarathi.config import SystemConfig
+from sarathi.engine.base_llm_engine import BaseLLMEngine
+from sarathi.engine.pipeline_parallel_llm_engine import PipelineParallelLLMEngine
+
+
+class LLMEngine:
+
+    @classmethod
+    def from_system_config(cls, config: SystemConfig) -> "LLMEngine":
+        """Creates an LLM engine from the engine arguments."""
+        # Create the engine configs.
+        if config.parallel_config.pipeline_parallel_size > 1:
+            engine = PipelineParallelLLMEngine(config)
+        else:
+            engine = BaseLLMEngine(config)
+
+        return engine

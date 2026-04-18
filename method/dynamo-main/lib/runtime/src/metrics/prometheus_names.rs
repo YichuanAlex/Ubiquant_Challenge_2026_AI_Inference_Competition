@@ -1,3 +1,1049 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b48bd2ebe4f2b3c94275f5cc818d3387d38fe449f5b0338f08ea4f2a63f4f329
-size 43515
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Prometheus metric name constants and sanitization utilities
+//!
+//! This module provides centralized Prometheus metric name constants and sanitization functions
+//! for various components to ensure consistency and avoid duplication across the codebase.
+//!
+//! ⚠️  **CRITICAL: REGENERATE PYTHON FILE AFTER CHANGES** ⚠️
+//! When modifying constants in this file, regenerate the Python module:
+//!     cargo run -p dynamo-codegen --bin gen-python-prometheus-names
+//!
+//! This generates `lib/bindings/python/src/dynamo/prometheus_names.py`
+//! with pure Python constants (no Rust bindings needed).
+//!
+//! ## Naming Conventions
+//!
+//! All metric names should follow: `{prefix}_{name}_{suffix}`
+//!
+//! **Prefix**: Component identifier (`dynamo_component_`, `dynamo_frontend_`, etc.)
+//! **Name**: Descriptive snake_case name indicating what is measured
+//! **Suffix**:
+//!   - Units: `_seconds`, `_bytes`, `_ms`, `_percent`, `_messages`, `_connections`
+//!   - Counters: `_total` (not `total_` prefix) - for cumulative metrics that only increase
+//!   - Gauges: No `_total` suffix - for current state metrics that can go up and down
+//!   - Note: Do not use `_counter`, `_gauge`, `_time`, or `_size` in Prometheus names (too vague)
+//!
+//! **Common Transformations**:
+//! - ❌ `_counter` → ✅ `_total`
+//! - ❌ `_sum` → ✅ `_total`
+//! - ❌ `_gauge` → ✅ (no suffix needed for current values)
+//! - ❌ `_time` → ✅ `_seconds`, `_ms`, `_hours`, `_duration_seconds`
+//! - ❌ `_time_total` → ✅ `_seconds_total`, `_ms_total`, `_hours_total`
+//! - ❌ `_total_time` → ✅ `_seconds_total`, `_ms_total`, `_hours_total`
+//! - ❌ `_total_time_seconds` → ✅ `_seconds_total`
+//! - ❌ `_average_time` → ✅ `_seconds_avg`, `_ms_avg`
+//! - ❌ `_size` → ✅ `_bytes`, `_total`, `_length`
+//! - ❌ `_some_request_size` → ✅ `_some_request_bytes_avg`
+//! - ❌ `_rate` → ✅ `_per_second`, `_per_minute`
+//! - ❌ `disconnected_clients_total` → ✅ `disconnected_clients` (gauge, not counter)
+//! - ❌ `inflight_requests_total` → ✅ `inflight_requests` (gauge, not counter)
+//! - ❌ `connections_total` → ✅ `current_connections` (gauge, not counter)
+//!
+//! **Examples**:
+//! - ✅ `dynamo_frontend_requests_total` - Total request counter (not `incoming_requests`)
+//! - ✅ `dynamo_frontend_request_duration_seconds` - Request duration histogram (not `response_time`)
+//! - ✅ `dynamo_component_errors_total` - Total error counter (not `total_errors`)
+//! - ✅ `dynamo_component_memory_usage_bytes` - Memory usage gauge
+//! - ✅ `dynamo_frontend_inflight_requests` - Current inflight requests gauge
+//! - ✅ `dynamo_component_cpu_usage_percent` - CPU usage percentage
+//! - ✅ `dynamo_frontend_tokens_per_second` - Token generation rate
+//! - ✅ `dynamo_messaging_client_connection_duration_ms` - Connection time in milliseconds
+//! - ✅ `dynamo_messaging_client_current_connections` - Current active connections gauge
+//! - ✅ `dynamo_messaging_client_in_messages_total` - Total messages received counter
+//!
+//! ## Key Differences: Prometheus Metric Names vs Prometheus Label Names
+//!
+//! **Metric names**: Allow colons and `__` anywhere. **Label names**: No colons, no `__` prefix.
+//! Label names starting with `__` are reserved for Prometheus internal use.
+
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+/// Metric name prefixes used across the metrics system.
+pub mod name_prefix {
+    /// Prefix for component-scoped metrics, auto-labeled with namespace/endpoint.
+    pub const COMPONENT: &str = "dynamo_component";
+
+    /// Prefix for frontend HTTP service metrics (requests, TTFT, ITL, disconnects).
+    pub const FRONTEND: &str = "dynamo_frontend";
+
+    /// Prefix for KV router instance metrics (carries `router_id` label).
+    pub const ROUTER: &str = "dynamo_router";
+
+    // Note: REQUEST_PLANE vs TRANSPORT: REQUEST_PLANE measures *what requests do* (latency,
+    // concurrency) and is transport-agnostic. TRANSPORT measures *how the wire behaves*
+    // (bytes transferred, protocol errors) and is protocol-specific (TCP/NATS).
+
+    /// Prefix for standalone KV indexer metrics
+    pub const KVINDEXER: &str = "dynamo_kvindexer";
+
+    /// Prefix for request-plane metrics at AddressedPushRouter.
+    /// Transport-agnostic: measures request lifecycle latency and concurrency
+    /// (queue → send → roundtrip TTFT, inflight gauge).
+    pub const REQUEST_PLANE: &str = "dynamo_request_plane";
+
+    /// Prefix for transport-layer metrics (TCP / NATS).
+    /// Protocol-specific: measures wire-level health (bytes sent/received, error counts).
+    pub const TRANSPORT: &str = "dynamo_transport";
+
+    /// Prefix for work-handler transport breakdown metrics (backend side)
+    pub const WORK_HANDLER: &str = "dynamo_work_handler";
+
+    /// Prefix for tokio runtime metrics (poll times, queue depths, stalls).
+    pub const TOKIO: &str = "dynamo_tokio";
+
+    /// Prefix for per-phase routing overhead latency (hashing, scheduling).
+    /// Raw Prometheus, not component-scoped.
+    pub const ROUTING_OVERHEAD: &str = "dynamo_routing_overhead";
+}
+
+/// Automatically inserted Prometheus label names used across the metrics system
+///
+/// These labels are auto-injected into metrics by the hierarchy system:
+/// - Rust: lib/runtime/src/metrics.rs create_metric() function
+/// - Python: components/src/dynamo/common/utils/prometheus.py register_engine_metrics_callback()
+///
+/// Python codegen: These constants are exported to lib/bindings/python/src/dynamo/prometheus_names.py
+pub mod labels {
+    /// Label for component identification
+    pub const COMPONENT: &str = "dynamo_component";
+
+    /// Label for namespace identification
+    pub const NAMESPACE: &str = "dynamo_namespace";
+
+    /// Label for endpoint identification
+    pub const ENDPOINT: &str = "dynamo_endpoint";
+
+    /// Label for worker data-parallel rank.
+    ///
+    /// Note: this is not an auto-inserted label like `dynamo_namespace`/`dynamo_component`.
+    /// It is used by worker/load-style metrics that need to disambiguate per-worker series.
+    pub const DP_RANK: &str = "dp_rank";
+
+    /// Label for worker instance ID (etcd lease ID).
+    pub const WORKER_ID: &str = "worker_id";
+
+    /// Label for model name/path (OpenAI API standard, injected by Dynamo)
+    /// This is the standard label name injected by all backends in metrics_labels=[("model", ...)].
+    /// Ensures compatibility with OpenAI-compatible tooling.
+    pub const MODEL: &str = "model";
+
+    /// Label for model name/path (alternative/native engine label, injected by Dynamo)
+    /// Some engines natively use model_name, so we inject both model and model_name
+    /// to ensure maximum compatibility with both OpenAI standard and engine-native tooling.
+    /// When a metric already has a label, injection does not overwrite it (original is preserved).
+    pub const MODEL_NAME: &str = "model_name";
+
+    /// Label for worker type (e.g., "aggregated", "prefill", "decode", "encoder", etc.)
+    pub const WORKER_TYPE: &str = "worker_type";
+
+    /// Label for router instance (discovery.instance_id() of the frontend)
+    pub const ROUTER_ID: &str = "router_id";
+}
+
+/// Well-known component names used as values for the `dynamo_component` label.
+///
+/// These are the canonical names passed to `namespace.component(name)` to create
+/// `Component` instances whose metrics carry `dynamo_component=<name>`.
+///
+/// Python codegen: These constants are exported to lib/bindings/python/src/dynamo/prometheus_names.py
+pub mod component_names {
+    /// Component name for the KV router (frontend-side request routing).
+    pub const ROUTER: &str = "router";
+
+    // TODO: add PREFILL = "prefill" and DECODE = "decode" component names
+    // and migrate backend worker component creation to use these constants.
+}
+
+/// Frontend service metrics (LLM HTTP service)
+///
+/// ⚠️  Python codegen: Run gen-python-prometheus-names after changes
+pub mod frontend_service {
+    // TODO: Remove DYN_METRICS_PREFIX — the custom prefix override was added for NIM
+    // compatibility (PR #2432) but is no longer needed. All frontend metrics should
+    // use the fixed `dynamo_frontend_` prefix from `name_prefix::FRONTEND`.
+    /// Environment variable that overrides the default metric prefix
+    pub const METRICS_PREFIX_ENV: &str = "DYN_METRICS_PREFIX";
+
+    /// Total number of LLM requests processed
+    pub const REQUESTS_TOTAL: &str = "requests_total";
+
+    /// Number of requests waiting in HTTP queue before receiving the first response (gauge)
+    pub const QUEUED_REQUESTS: &str = "queued_requests";
+
+    /// Number of inflight/concurrent requests going to the engine (vLLM, SGLang, ...)
+    /// Note: This is a gauge metric (current state) that can go up and down, so no _total suffix
+    pub const INFLIGHT_REQUESTS: &str = "inflight_requests";
+
+    /// Number of disconnected clients (gauge that can go up and down)
+    pub const DISCONNECTED_CLIENTS: &str = "disconnected_clients";
+
+    /// Duration of LLM requests
+    pub const REQUEST_DURATION_SECONDS: &str = "request_duration_seconds";
+
+    /// Input sequence length in tokens
+    pub const INPUT_SEQUENCE_TOKENS: &str = "input_sequence_tokens";
+
+    /// Output sequence length in tokens
+    pub const OUTPUT_SEQUENCE_TOKENS: &str = "output_sequence_tokens";
+
+    /// Predicted KV cache hit rate at routing time (0.0-1.0)
+    pub const KV_HIT_RATE: &str = "kv_hit_rate";
+
+    /// Upper-bound estimation of KV cache transfer latency in disaggregated serving (seconds)
+    pub const KV_TRANSFER_ESTIMATED_LATENCY_SECONDS: &str = "kv_transfer_estimated_latency_seconds";
+
+    /// Number of cached tokens (prefix cache hits) per request
+    pub const CACHED_TOKENS: &str = "cached_tokens";
+
+    /// Tokenizer latency in milliseconds
+    pub const TOKENIZER_LATENCY_MS: &str = "tokenizer_latency_ms";
+
+    /// Total number of output tokens generated (counter that updates in real-time)
+    pub const OUTPUT_TOKENS_TOTAL: &str = "output_tokens_total";
+
+    /// Time to first token in seconds
+    pub const TIME_TO_FIRST_TOKEN_SECONDS: &str = "time_to_first_token_seconds";
+
+    /// Inter-token latency in seconds
+    pub const INTER_TOKEN_LATENCY_SECONDS: &str = "inter_token_latency_seconds";
+
+    /// Model configuration metrics
+    ///
+    /// Runtime config metrics (from ModelRuntimeConfig):
+    /// Total KV blocks available for a worker serving the model
+    pub const MODEL_TOTAL_KV_BLOCKS: &str = "model_total_kv_blocks";
+
+    /// Maximum number of sequences for a worker serving the model (runtime config)
+    pub const MODEL_MAX_NUM_SEQS: &str = "model_max_num_seqs";
+
+    /// Maximum number of batched tokens for a worker serving the model (runtime config)
+    pub const MODEL_MAX_NUM_BATCHED_TOKENS: &str = "model_max_num_batched_tokens";
+
+    /// MDC metrics (from ModelDeploymentCard):
+    /// Maximum context length for a worker serving the model (MDC)
+    pub const MODEL_CONTEXT_LENGTH: &str = "model_context_length";
+
+    /// KV cache block size for a worker serving the model (MDC)
+    pub const MODEL_KV_CACHE_BLOCK_SIZE: &str = "model_kv_cache_block_size";
+
+    /// Request migration limit for a worker serving the model (MDC)
+    pub const MODEL_MIGRATION_LIMIT: &str = "model_migration_limit";
+
+    /// Total number of request migrations due to worker unavailability
+    pub const MODEL_MIGRATION_TOTAL: &str = "model_migration_total";
+
+    /// Total number of times migration was disabled because the sequence length
+    /// exceeded the configured max_seq_len limit
+    pub const MODEL_MIGRATION_MAX_SEQ_LEN_EXCEEDED_TOTAL: &str =
+        "model_migration_max_seq_len_exceeded_total";
+
+    /// Total number of request cancellations
+    pub const MODEL_CANCELLATION_TOTAL: &str = "model_cancellation_total";
+
+    /// Total number of requests rejected due to resource exhaustion
+    pub const MODEL_REJECTION_TOTAL: &str = "model_rejection_total";
+
+    /// Active decode blocks (KV cache blocks) per worker
+    /// Gauge metric tracking current KV cache block utilization for each worker
+    pub const WORKER_ACTIVE_DECODE_BLOCKS: &str = "worker_active_decode_blocks";
+
+    /// Active prefill tokens per worker
+    /// Gauge metric tracking current queued prefill tokens for each worker
+    pub const WORKER_ACTIVE_PREFILL_TOKENS: &str = "worker_active_prefill_tokens";
+
+    /// Last observed time to first token per worker (in seconds)
+    /// Gauge metric tracking the most recent TTFT for each worker
+    pub const WORKER_LAST_TIME_TO_FIRST_TOKEN_SECONDS: &str =
+        "worker_last_time_to_first_token_seconds";
+
+    /// Last observed input sequence tokens per worker
+    /// Gauge metric tracking the input token count from the same request as WORKER_LAST_TIME_TO_FIRST_TOKEN_SECONDS
+    /// Updated atomically with TTFT to correlate latency with input size
+    pub const WORKER_LAST_INPUT_SEQUENCE_TOKENS: &str = "worker_last_input_sequence_tokens";
+
+    /// Last observed inter-token latency per worker (in seconds)
+    /// Gauge metric tracking the most recent ITL for each worker
+    pub const WORKER_LAST_INTER_TOKEN_LATENCY_SECONDS: &str =
+        "worker_last_inter_token_latency_seconds";
+
+    /// Number of requests pending in the router's scheduler queue (gauge per worker_type)
+    pub const ROUTER_QUEUE_PENDING_REQUESTS: &str = "router_queue_pending_requests";
+
+    /// Label name for the type of migration
+    pub const MIGRATION_TYPE_LABEL: &str = "migration_type";
+
+    /// Label name for tokenizer operation
+    pub const OPERATION_LABEL: &str = "operation";
+
+    /// Operation label values for tokenizer latency metric
+    pub mod operation {
+        /// Tokenization operation
+        pub const TOKENIZE: &str = "tokenize";
+
+        /// Detokenization operation
+        pub const DETOKENIZE: &str = "detokenize";
+    }
+
+    /// Migration type label values
+    pub mod migration_type {
+        /// Migration during initial stream creation (NoResponders error)
+        pub const NEW_REQUEST: &str = "new_request";
+
+        /// Migration during ongoing request (stream disconnected)
+        pub const ONGOING_REQUEST: &str = "ongoing_request";
+    }
+
+    /// Status label values
+    pub mod status {
+        /// Value for successful requests
+        pub const SUCCESS: &str = "success";
+
+        /// Value for failed requests
+        pub const ERROR: &str = "error";
+    }
+
+    /// Request type label values
+    pub mod request_type {
+        /// Value for streaming requests
+        pub const STREAM: &str = "stream";
+
+        /// Value for unary requests
+        pub const UNARY: &str = "unary";
+    }
+
+    /// Error type label values for fine-grained error classification
+    pub mod error_type {
+        /// No error (used for successful requests)
+        pub const NONE: &str = "";
+
+        /// Client validation error (4xx with "Validation:" prefix)
+        pub const VALIDATION: &str = "validation";
+
+        /// Model or resource not found (404)
+        pub const NOT_FOUND: &str = "not_found";
+
+        /// Service overloaded, too many requests (503)
+        pub const OVERLOAD: &str = "overload";
+
+        /// Request cancelled by client or timeout
+        pub const CANCELLED: &str = "cancelled";
+
+        /// Backend accepted the request but stopped responding (response inactivity timeout)
+        pub const RESPONSE_TIMEOUT: &str = "response_timeout";
+
+        /// Internal server error (500 and other unexpected errors)
+        pub const INTERNAL: &str = "internal";
+
+        /// Feature not implemented (501)
+        pub const NOT_IMPLEMENTED: &str = "not_implemented";
+    }
+}
+
+/// Work handler Prometheus metric names
+pub mod work_handler {
+    /// Total number of requests processed by work handler
+    pub const REQUESTS_TOTAL: &str = "requests_total";
+
+    /// Total number of bytes received in requests by work handler
+    pub const REQUEST_BYTES_TOTAL: &str = "request_bytes_total";
+
+    /// Total number of bytes sent in responses by work handler
+    pub const RESPONSE_BYTES_TOTAL: &str = "response_bytes_total";
+
+    /// Number of requests currently being processed by work handler
+    /// Note: This is a gauge metric (current state) that can go up and down, so no _total suffix
+    pub const INFLIGHT_REQUESTS: &str = "inflight_requests";
+
+    /// Time spent processing requests by work handler (histogram)
+    pub const REQUEST_DURATION_SECONDS: &str = "request_duration_seconds";
+
+    /// Total number of errors in work handler processing
+    pub const ERRORS_TOTAL: &str = "errors_total";
+
+    /// Total number of requests cancelled by work handler (client stop/kill or disconnect)
+    pub const CANCELLATION_TOTAL: &str = "cancellation_total";
+
+    /// Network transit: frontend send to backend receive (wall-clock, cross-process)
+    pub const NETWORK_TRANSIT_SECONDS: &str = "network_transit_seconds";
+
+    /// Backend processing: handle_payload entry to first response sent
+    pub const TIME_TO_FIRST_RESPONSE_SECONDS: &str = "time_to_first_response_seconds";
+
+    /// Label name for error type classification
+    pub const ERROR_TYPE_LABEL: &str = "error_type";
+
+    /// Error type values for work handler metrics
+    pub mod error_types {
+        /// Deserialization error
+        pub const DESERIALIZATION: &str = "deserialization";
+
+        /// Invalid message format error
+        pub const INVALID_MESSAGE: &str = "invalid_message";
+
+        /// Response stream creation error
+        pub const RESPONSE_STREAM: &str = "response_stream";
+
+        /// Generation error
+        pub const GENERATE: &str = "generate";
+
+        /// Response publishing error
+        pub const PUBLISH_RESPONSE: &str = "publish_response";
+
+        /// Final message publishing error
+        pub const PUBLISH_FINAL: &str = "publish_final";
+    }
+}
+
+/// Task tracker Prometheus metric name suffixes
+pub mod task_tracker {
+    /// Total number of tasks issued/submitted
+    pub const TASKS_ISSUED_TOTAL: &str = "tasks_issued_total";
+
+    /// Total number of tasks started
+    pub const TASKS_STARTED_TOTAL: &str = "tasks_started_total";
+
+    /// Total number of successfully completed tasks
+    pub const TASKS_SUCCESS_TOTAL: &str = "tasks_success_total";
+
+    /// Total number of cancelled tasks
+    pub const TASKS_CANCELLED_TOTAL: &str = "tasks_cancelled_total";
+
+    /// Total number of failed tasks
+    pub const TASKS_FAILED_TOTAL: &str = "tasks_failed_total";
+
+    /// Total number of rejected tasks
+    pub const TASKS_REJECTED_TOTAL: &str = "tasks_rejected_total";
+}
+
+/// DistributedRuntime core metrics
+pub mod distributed_runtime {
+    /// Total uptime of the DistributedRuntime in seconds
+    pub const UPTIME_SECONDS: &str = "uptime_seconds";
+}
+
+/// KVBM
+pub mod kvbm {
+    /// The number of offload blocks from device to host
+    pub const OFFLOAD_BLOCKS_D2H: &str = "offload_blocks_d2h";
+
+    /// The number of offload blocks from host to disk
+    pub const OFFLOAD_BLOCKS_H2D: &str = "offload_blocks_h2d";
+
+    /// The number of offload blocks from device to disk (bypassing host memory)
+    pub const OFFLOAD_BLOCKS_D2D: &str = "offload_blocks_d2d";
+
+    /// The number of onboard blocks from host to device
+    pub const ONBOARD_BLOCKS_H2D: &str = "onboard_blocks_h2d";
+
+    /// The number of onboard blocks from disk to device
+    pub const ONBOARD_BLOCKS_D2D: &str = "onboard_blocks_d2d";
+
+    /// The number of matched tokens
+    pub const MATCHED_TOKENS: &str = "matched_tokens";
+
+    /// Host cache hit rate (0.0-1.0) from the sliding window
+    pub const HOST_CACHE_HIT_RATE: &str = "host_cache_hit_rate";
+
+    /// Disk cache hit rate (0.0-1.0) from the sliding window
+    pub const DISK_CACHE_HIT_RATE: &str = "disk_cache_hit_rate";
+
+    /// Object storage cache hit rate (0.0-1.0) from the sliding window
+    pub const OBJECT_CACHE_HIT_RATE: &str = "object_cache_hit_rate";
+
+    /// Number of blocks offloaded from device to object storage
+    pub const OFFLOAD_BLOCKS_D2O: &str = "offload_blocks_d2o";
+
+    /// Number of blocks onboarded from object storage to device
+    pub const ONBOARD_BLOCKS_O2D: &str = "onboard_blocks_o2d";
+
+    /// Bytes transferred to object storage (offload)
+    pub const OFFLOAD_BYTES_OBJECT: &str = "offload_bytes_object";
+
+    /// Bytes transferred from object storage (onboard)
+    pub const ONBOARD_BYTES_OBJECT: &str = "onboard_bytes_object";
+
+    /// Number of failed object storage read operations (blocks)
+    pub const OBJECT_READ_FAILURES: &str = "object_read_failures";
+
+    /// Number of failed object storage write operations (blocks)
+    pub const OBJECT_WRITE_FAILURES: &str = "object_write_failures";
+}
+
+/// Router per-request metrics (component-scoped via `MetricsHierarchy`).
+///
+/// Metric names are composed as `"{METRIC_PREFIX}{frontend_service::*}"` at init time,
+/// then passed to `component.metrics().create_*()` which auto-prepends `dynamo_component_`,
+/// yielding e.g. `dynamo_component_router_requests_total`.
+/// See `lib/llm/src/kv_router/metrics.rs` `RouterRequestMetrics::from_component()`.
+pub mod router_request {
+    /// Prefix prepended to `frontend_service::*` names to form router metric names.
+    /// e.g. `"router_"` + `frontend_service::REQUESTS_TOTAL` → `"router_requests_total"`.
+    pub const METRIC_PREFIX: &str = "router_";
+}
+
+/// Routing overhead phase latency histogram suffixes.
+///
+/// Combined with `name_prefix::ROUTER` ("dynamo_router") in `RoutingOverheadMetrics::register()`,
+/// yielding e.g. `dynamo_router_overhead_block_hashing_ms{router_id="..."}`.
+/// See `lib/llm/src/kv_router/metrics.rs`.
+pub mod routing_overhead {
+    /// Time spent computing block hashes
+    pub const BLOCK_HASHING_MS: &str = "overhead_block_hashing_ms";
+
+    /// Time spent in indexer find_matches
+    pub const INDEXER_FIND_MATCHES_MS: &str = "overhead_indexer_find_matches_ms";
+
+    /// Time spent computing sequence hashes
+    pub const SEQ_HASHING_MS: &str = "overhead_seq_hashing_ms";
+
+    /// Time spent in scheduler worker selection
+    pub const SCHEDULING_MS: &str = "overhead_scheduling_ms";
+
+    /// Total routing overhead per request
+    pub const TOTAL_MS: &str = "overhead_total_ms";
+}
+
+/// Router request metrics (component-scoped aggregate histograms + counter)
+///
+/// These constants are the suffix portions of full metric names, combined with
+/// [`name_prefix::COMPONENT`] to form the complete name, e.g.
+/// `dynamo_component_router_requests_total`.
+///
+/// ⚠️  Python codegen: Run gen-python-prometheus-names after changes
+pub mod router {
+    /// Total number of requests processed by the router
+    pub const REQUESTS_TOTAL: &str = "router_requests_total";
+
+    /// Total number of remote indexer overlap queries that failed
+    pub const REMOTE_INDEXER_QUERY_FAILURES_TOTAL: &str =
+        "router_remote_indexer_query_failures_total";
+
+    /// Total number of remote indexer routing-decision writes that failed
+    pub const REMOTE_INDEXER_WRITE_FAILURES_TOTAL: &str =
+        "router_remote_indexer_write_failures_total";
+
+    /// Time to first token observed at the router (seconds)
+    pub const TIME_TO_FIRST_TOKEN_SECONDS: &str = "router_time_to_first_token_seconds";
+
+    /// Average inter-token latency observed at the router (seconds)
+    pub const INTER_TOKEN_LATENCY_SECONDS: &str = "router_inter_token_latency_seconds";
+
+    /// Input sequence length in tokens observed at the router
+    pub const INPUT_SEQUENCE_TOKENS: &str = "router_input_sequence_tokens";
+
+    /// Output sequence length in tokens observed at the router
+    pub const OUTPUT_SEQUENCE_TOKENS: &str = "router_output_sequence_tokens";
+}
+
+/// Frontend pipeline stage and event-loop metrics
+pub mod frontend_perf {
+    /// Per-stage latency histogram (label: stage = preprocess|route|transport_roundtrip|postprocess)
+    pub const STAGE_DURATION_SECONDS: &str = "stage_duration_seconds";
+    /// Tokenization time in preprocessor
+    pub const TOKENIZE_SECONDS: &str = "tokenize_seconds";
+    /// Template application time in preprocessor
+    pub const TEMPLATE_SECONDS: &str = "template_seconds";
+    /// Cumulative detokenization time (microseconds); pair with DETOKENIZE_TOKEN_COUNT
+    pub const DETOKENIZE_TOTAL_US: &str = "detokenize_total_us";
+    /// Total tokens detokenized; use rate(total_us)/rate(count) for per-token average
+    pub const DETOKENIZE_TOKEN_COUNT: &str = "detokenize_token_count";
+    /// Event loop delay canary (sleep 10ms, measure drift)
+    pub const EVENT_LOOP_DELAY_SECONDS: &str = "event_loop_delay_seconds";
+    /// Count of event loop stalls (delay > 5ms)
+    pub const EVENT_LOOP_STALL_TOTAL: &str = "event_loop_stall_total";
+}
+
+/// Tokio runtime metrics
+pub mod tokio_perf {
+    pub const WORKER_MEAN_POLL_TIME_NS: &str = "worker_mean_poll_time_ns";
+    pub const GLOBAL_QUEUE_DEPTH: &str = "global_queue_depth";
+    pub const BUDGET_FORCED_YIELD_TOTAL: &str = "budget_forced_yield_total";
+    pub const WORKER_BUSY_RATIO: &str = "worker_busy_ratio";
+    pub const WORKER_PARK_COUNT_TOTAL: &str = "worker_park_count_total";
+    pub const WORKER_LOCAL_QUEUE_DEPTH: &str = "worker_local_queue_depth";
+    pub const WORKER_STEAL_COUNT_TOTAL: &str = "worker_steal_count_total";
+    pub const WORKER_OVERFLOW_COUNT_TOTAL: &str = "worker_overflow_count_total";
+    pub const BLOCKING_THREADS: &str = "blocking_threads";
+    pub const BLOCKING_IDLE_THREADS: &str = "blocking_idle_threads";
+    pub const BLOCKING_QUEUE_DEPTH: &str = "blocking_queue_depth";
+    pub const ALIVE_TASKS: &str = "alive_tasks";
+}
+
+/// Standalone KV indexer HTTP service metrics
+pub mod kvindexer {
+    /// HTTP request latency
+    pub const REQUEST_DURATION_SECONDS: &str = "request_duration_seconds";
+
+    /// Total HTTP requests
+    pub const REQUESTS_TOTAL: &str = "requests_total";
+
+    /// HTTP error responses (4xx/5xx)
+    pub const ERRORS_TOTAL: &str = "errors_total";
+
+    /// Number of active model+tenant indexers
+    pub const MODELS: &str = "models";
+
+    /// Number of registered worker instances
+    pub const WORKERS: &str = "workers";
+}
+
+/// Request plane metrics at AddressedPushRouter
+pub mod request_plane {
+    /// Time from generate() entry to send_request() (serialization + encoding)
+    pub const QUEUE_SECONDS: &str = "queue_seconds";
+    /// Time for send_request() to complete (frontend view: network + queue + ack)
+    pub const SEND_SECONDS: &str = "send_seconds";
+    /// Time from send_request() to first response item (transport roundtrip TTFT)
+    pub const ROUNDTRIP_TTFT_SECONDS: &str = "roundtrip_ttft_seconds";
+    /// Currently in-flight requests (gauge)
+    pub const INFLIGHT_REQUESTS: &str = "inflight_requests";
+}
+
+/// Transport-specific metrics (TCP / NATS)
+pub mod transport {
+    pub mod tcp {
+        pub const POOL_ACTIVE: &str = "tcp_pool_active";
+        pub const POOL_IDLE: &str = "tcp_pool_idle";
+        pub const BYTES_SENT_TOTAL: &str = "tcp_bytes_sent_total";
+        pub const BYTES_RECEIVED_TOTAL: &str = "tcp_bytes_received_total";
+        pub const ERRORS_TOTAL: &str = "tcp_errors_total";
+        pub const SERVER_QUEUE_DEPTH: &str = "tcp_server_queue_depth";
+    }
+    pub mod nats {
+        pub const ERRORS_TOTAL: &str = "nats_errors_total";
+    }
+}
+
+// KvRouter (including KvIndexer) Prometheus metric names
+pub mod kvrouter {
+    /// Number of KV cache events applied to the index (including status)
+    pub const KV_CACHE_EVENTS_APPLIED: &str = "kv_cache_events_applied";
+}
+
+/// KV Publisher metrics
+pub mod kv_publisher {
+    /// Total number of raw events dropped by engines before reaching publisher (detected via event_id gaps)
+    pub const ENGINES_DROPPED_EVENTS_TOTAL: &str = "kv_publisher_engines_dropped_events_total";
+}
+
+/// Additional TRT-LLM worker metrics beyond what the engine natively provides.
+///
+/// These metrics are Python-only (registered via `prometheus_client`) and share the
+/// `trtllm_` prefix so they are captured by the same prefix filter as engine metrics.
+///
+/// ⚠️  Python codegen: Run gen-python-prometheus-names after changes
+pub mod trtllm_additional {
+    /// Total number of aborted/cancelled requests
+    pub const NUM_ABORTED_REQUESTS_TOTAL: &str = "trtllm_num_aborted_requests_total";
+
+    /// Total number of requests containing image content
+    pub const REQUEST_TYPE_IMAGE_TOTAL: &str = "trtllm_request_type_image_total";
+
+    /// Total number of requests using guided/structured decoding
+    pub const REQUEST_TYPE_STRUCTURED_OUTPUT_TOTAL: &str =
+        "trtllm_request_type_structured_output_total";
+
+    /// Total number of successful KV cache transfers
+    pub const KV_TRANSFER_SUCCESS_TOTAL: &str = "trtllm_kv_transfer_success_total";
+
+    /// KV cache transfer latency per request in seconds
+    pub const KV_TRANSFER_LATENCY_SECONDS: &str = "trtllm_kv_transfer_latency_seconds";
+
+    /// KV cache transfer size per request in bytes
+    pub const KV_TRANSFER_BYTES: &str = "trtllm_kv_transfer_bytes";
+
+    /// KV cache transfer speed per request in GB/s
+    pub const KV_TRANSFER_SPEED_GB_S: &str = "trtllm_kv_transfer_speed_gb_s";
+}
+
+// KV cache statistics metrics
+pub mod kvstats {
+    /// Total number of KV cache blocks available on the worker
+    pub const TOTAL_BLOCKS: &str = "total_blocks";
+
+    /// GPU cache usage as a percentage (0.0-1.0)
+    pub const GPU_CACHE_USAGE_PERCENT: &str = "gpu_cache_usage_percent";
+}
+
+// Model information metrics
+pub mod model_info {
+    /// Model load time in seconds
+    pub const LOAD_TIME_SECONDS: &str = "model_load_time_seconds";
+}
+
+// Shared regex patterns for Prometheus sanitization
+static METRIC_INVALID_CHARS_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[^a-zA-Z0-9_:]").unwrap());
+static LABEL_INVALID_CHARS_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[^a-zA-Z0-9_]").unwrap());
+static INVALID_FIRST_CHAR_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[^a-zA-Z_]").unwrap());
+
+/// Sanitizes a Prometheus metric name by converting invalid characters to underscores
+/// and ensuring the first character is valid. Uses regex for clear validation.
+/// Returns an error if the input cannot be sanitized into a valid name.
+///
+/// **Rules**: Pattern `[a-zA-Z_:][a-zA-Z0-9_:]*`. Allows colons and `__` anywhere.
+pub fn sanitize_prometheus_name(raw: &str) -> anyhow::Result<String> {
+    if raw.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Cannot sanitize empty string into valid Prometheus name"
+        ));
+    }
+
+    // Replace all invalid characters with underscores
+    let mut sanitized = METRIC_INVALID_CHARS_PATTERN
+        .replace_all(raw, "_")
+        .to_string();
+
+    // Ensure first character is valid (letter, underscore, or colon)
+    if INVALID_FIRST_CHAR_PATTERN.is_match(&sanitized) {
+        sanitized = format!("_{}", sanitized);
+    }
+
+    // Check if the result is all underscores (invalid input)
+    if sanitized.chars().all(|c| c == '_') {
+        return Err(anyhow::anyhow!(
+            "Input '{}' contains only invalid characters and cannot be sanitized into a valid Prometheus name",
+            raw
+        ));
+    }
+
+    Ok(sanitized)
+}
+
+/// Sanitizes a Prometheus label name by converting invalid characters to underscores
+/// and ensuring the first character is valid. Uses regex for clear validation.
+/// Label names have stricter rules than metric names (no colons allowed).
+/// Returns an error if the input cannot be sanitized into a valid label name.
+///
+/// **Rules**: Pattern `[a-zA-Z_][a-zA-Z0-9_]*`. No colons, no `__` prefix (reserved).
+pub fn sanitize_prometheus_label(raw: &str) -> anyhow::Result<String> {
+    if raw.is_empty() {
+        return Err(anyhow::anyhow!(
+            "Cannot sanitize empty string into valid Prometheus label"
+        ));
+    }
+
+    // Replace all invalid characters with underscores (no colons allowed in labels)
+    let mut sanitized = LABEL_INVALID_CHARS_PATTERN
+        .replace_all(raw, "_")
+        .to_string();
+
+    // Ensure first character is valid (letter or underscore only)
+    if INVALID_FIRST_CHAR_PATTERN.is_match(&sanitized) {
+        sanitized = format!("_{}", sanitized);
+    }
+
+    // Prevent __ prefix (reserved for Prometheus internal use) but allow __ elsewhere
+    if sanitized.starts_with("__") {
+        sanitized = sanitized
+            .strip_prefix("__")
+            .unwrap_or(&sanitized)
+            .to_string();
+        if sanitized.is_empty() || !sanitized.chars().next().unwrap().is_ascii_alphabetic() {
+            sanitized = format!("_{}", sanitized);
+        }
+    }
+
+    // Check if the result is all underscores (invalid input)
+    if sanitized.chars().all(|c| c == '_') {
+        return Err(anyhow::anyhow!(
+            "Input '{}' contains only invalid characters and cannot be sanitized into a valid Prometheus label",
+            raw
+        ));
+    }
+
+    Ok(sanitized)
+}
+
+/// Sanitizes a Prometheus frontend metric prefix by converting invalid characters to underscores
+/// and ensuring the first character is valid. Uses the general prometheus name sanitization
+/// but with frontend-specific fallback behavior.
+pub fn sanitize_frontend_prometheus_prefix(raw: &str) -> String {
+    if raw.is_empty() {
+        return name_prefix::FRONTEND.to_string();
+    }
+
+    // Reuse the general prometheus name sanitization logic, fallback to frontend prefix on error
+    sanitize_prometheus_name(raw).unwrap_or_else(|_| name_prefix::FRONTEND.to_string())
+}
+
+/// Builds a full component metric name by prepending the component prefix
+/// Sanitizes the metric name to ensure it's valid for Prometheus
+pub fn build_component_metric_name(metric_name: &str) -> String {
+    let sanitized_name =
+        sanitize_prometheus_name(metric_name).expect("metric name should be valid or sanitizable");
+    format!("{}_{}", name_prefix::COMPONENT, sanitized_name)
+}
+
+/// Safely converts a u64 value to i64 for Prometheus metrics
+///
+/// Since Prometheus IntGaugeVec uses i64 but our data types use u64,
+/// this function clamps large u64 values to i64::MAX to prevent overflow
+/// and ensure metrics remain positive.
+///
+/// # Arguments
+/// * `value` - The u64 value to convert
+///
+/// # Returns
+/// An i64 value, clamped to i64::MAX if the input exceeds i64::MAX
+///
+/// # Examples
+/// ```
+/// use dynamo_runtime::metrics::prometheus_names::clamp_u64_to_i64;
+///
+/// assert_eq!(clamp_u64_to_i64(100), 100);
+/// assert_eq!(clamp_u64_to_i64(u64::MAX), i64::MAX);
+/// ```
+pub fn clamp_u64_to_i64(value: u64) -> i64 {
+    if value > i64::MAX as u64 {
+        i64::MAX
+    } else {
+        value as i64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_frontend_prometheus_prefix() {
+        // Test that valid prefixes remain unchanged
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("dynamo_frontend"),
+            "dynamo_frontend"
+        );
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("custom_prefix"),
+            "custom_prefix"
+        );
+        assert_eq!(sanitize_frontend_prometheus_prefix("test123"), "test123");
+
+        // Test that invalid characters are converted to underscores
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("test prefix"),
+            "test_prefix"
+        );
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("test.prefix"),
+            "test_prefix"
+        );
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("test@prefix"),
+            "test_prefix"
+        );
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix("test-prefix"),
+            "test_prefix"
+        );
+
+        // Test that invalid first characters are fixed
+        assert_eq!(sanitize_frontend_prometheus_prefix("123test"), "_123test");
+        assert_eq!(sanitize_frontend_prometheus_prefix("@test"), "_test");
+
+        // Test empty string fallback
+        assert_eq!(
+            sanitize_frontend_prometheus_prefix(""),
+            name_prefix::FRONTEND
+        );
+    }
+
+    #[test]
+    fn test_sanitize_prometheus_name() {
+        // Test that valid names remain unchanged
+        assert_eq!(
+            sanitize_prometheus_name("valid_name").unwrap(),
+            "valid_name"
+        );
+        assert_eq!(sanitize_prometheus_name("test123").unwrap(), "test123");
+        assert_eq!(
+            sanitize_prometheus_name("test_name_123").unwrap(),
+            "test_name_123"
+        );
+        assert_eq!(sanitize_prometheus_name("test:name").unwrap(), "test:name"); // colons allowed
+
+        // Test that invalid characters are converted to underscores
+        assert_eq!(sanitize_prometheus_name("test name").unwrap(), "test_name");
+        assert_eq!(sanitize_prometheus_name("test.name").unwrap(), "test_name");
+        assert_eq!(sanitize_prometheus_name("test@name").unwrap(), "test_name");
+        assert_eq!(sanitize_prometheus_name("test-name").unwrap(), "test_name");
+        assert_eq!(
+            sanitize_prometheus_name("test$name#123").unwrap(),
+            "test_name_123"
+        );
+
+        // Test that double underscores are ALLOWED in metric names (unlike labels)
+        assert_eq!(
+            sanitize_prometheus_name("test__name").unwrap(),
+            "test__name"
+        );
+        assert_eq!(
+            sanitize_prometheus_name("test___name").unwrap(),
+            "test___name"
+        );
+        assert_eq!(sanitize_prometheus_name("__test").unwrap(), "__test"); // Leading double underscore OK
+
+        // Test that invalid first characters are fixed
+        assert_eq!(sanitize_prometheus_name("123test").unwrap(), "_123test");
+        assert_eq!(sanitize_prometheus_name("@test").unwrap(), "_test"); // @ becomes _, no double underscore
+        assert_eq!(sanitize_prometheus_name("-test").unwrap(), "_test"); // - becomes _, no double underscore
+        assert_eq!(sanitize_prometheus_name(".test").unwrap(), "_test"); // . becomes _, no double underscore
+
+        // Test empty string returns error
+        assert!(sanitize_prometheus_name("").is_err());
+
+        // Test complex cases
+        assert_eq!(
+            sanitize_prometheus_name("123.test-name@domain").unwrap(),
+            "_123_test_name_domain"
+        );
+
+        // Test that strings with only invalid characters return error
+        assert!(sanitize_prometheus_name("@#$%").is_err());
+        assert!(sanitize_prometheus_name("!!!!").is_err());
+    }
+
+    #[test]
+    fn test_sanitize_prometheus_label() {
+        // Test that valid labels remain unchanged
+        assert_eq!(
+            sanitize_prometheus_label("valid_label").unwrap(),
+            "valid_label"
+        );
+        assert_eq!(sanitize_prometheus_label("test123").unwrap(), "test123");
+        assert_eq!(
+            sanitize_prometheus_label("test_label_123").unwrap(),
+            "test_label_123"
+        );
+
+        // Test that colons are NOT allowed in labels (stricter than names)
+        assert_eq!(
+            sanitize_prometheus_label("test:label").unwrap(),
+            "test_label"
+        );
+
+        // Test that invalid characters are converted to underscores
+        assert_eq!(
+            sanitize_prometheus_label("test label").unwrap(),
+            "test_label"
+        );
+        assert_eq!(
+            sanitize_prometheus_label("test.label").unwrap(),
+            "test_label"
+        );
+        assert_eq!(
+            sanitize_prometheus_label("test@label").unwrap(),
+            "test_label"
+        );
+        assert_eq!(
+            sanitize_prometheus_label("test-label").unwrap(),
+            "test_label"
+        );
+        assert_eq!(
+            sanitize_prometheus_label("test$label#123").unwrap(),
+            "test_label_123"
+        );
+
+        // Test that double underscores are ALLOWED in middle but NOT at start
+        assert_eq!(
+            sanitize_prometheus_label("test__label").unwrap(),
+            "test__label"
+        ); // OK in middle
+        assert_eq!(
+            sanitize_prometheus_label("test___label").unwrap(),
+            "test___label"
+        ); // OK in middle
+        assert_eq!(
+            sanitize_prometheus_label("test____label").unwrap(),
+            "test____label"
+        ); // OK in middle
+        assert_eq!(sanitize_prometheus_label("__test").unwrap(), "test"); // Leading __ removed
+        assert!(sanitize_prometheus_label("____").is_err()); // All underscores should error
+
+        // Test that invalid first characters are fixed (no colons allowed)
+        assert_eq!(sanitize_prometheus_label("123test").unwrap(), "_123test");
+        assert_eq!(sanitize_prometheus_label("@test").unwrap(), "_test");
+        assert_eq!(sanitize_prometheus_label(":test").unwrap(), "_test"); // colon not allowed
+        assert_eq!(sanitize_prometheus_label("-test").unwrap(), "_test");
+
+        // Test empty string returns error
+        assert!(sanitize_prometheus_label("").is_err());
+
+        // Test complex cases
+        assert_eq!(
+            sanitize_prometheus_label("123:test-label@domain").unwrap(),
+            "_123_test_label_domain"
+        );
+
+        // Test that strings with only invalid characters return error
+        assert!(sanitize_prometheus_label("@#$%").is_err()); // @#$% -> ____ -> ___ -> all underscores error
+        assert!(sanitize_prometheus_label("!!!!").is_err()); // !!!! -> ____ -> ___ -> all underscores error
+    }
+
+    #[test]
+    fn test_build_component_metric_name() {
+        // Test that valid names work correctly
+        assert_eq!(
+            build_component_metric_name("test_metric"),
+            "dynamo_component_test_metric"
+        );
+        assert_eq!(
+            build_component_metric_name("requests_total"),
+            "dynamo_component_requests_total"
+        );
+
+        // Test that invalid characters are sanitized
+        assert_eq!(
+            build_component_metric_name("test metric"),
+            "dynamo_component_test_metric"
+        );
+        assert_eq!(
+            build_component_metric_name("test.metric"),
+            "dynamo_component_test_metric"
+        );
+        assert_eq!(
+            build_component_metric_name("test@metric"),
+            "dynamo_component_test_metric"
+        );
+
+        // Test that invalid first characters are fixed
+        assert_eq!(
+            build_component_metric_name("123metric"),
+            "dynamo_component__123metric"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "metric name should be valid or sanitizable")]
+    fn test_build_component_metric_name_panics_on_invalid_input() {
+        // Test that completely invalid input panics with clear message
+        build_component_metric_name("@#$%");
+    }
+
+    #[test]
+    #[should_panic(expected = "metric name should be valid or sanitizable")]
+    fn test_build_component_metric_name_panics_on_empty_input() {
+        // Test that empty input panics with clear message
+        build_component_metric_name("");
+    }
+
+    #[test]
+    fn test_clamp_u64_to_i64() {
+        // Test normal values within i64 range
+        assert_eq!(clamp_u64_to_i64(0), 0);
+        assert_eq!(clamp_u64_to_i64(100), 100);
+        assert_eq!(clamp_u64_to_i64(1000000), 1000000);
+
+        // Test maximum i64 value
+        assert_eq!(clamp_u64_to_i64(i64::MAX as u64), i64::MAX);
+
+        // Test values that exceed i64::MAX
+        assert_eq!(clamp_u64_to_i64(u64::MAX), i64::MAX);
+        assert_eq!(clamp_u64_to_i64((i64::MAX as u64) + 1), i64::MAX);
+        assert_eq!(clamp_u64_to_i64((i64::MAX as u64) + 1000), i64::MAX);
+    }
+}

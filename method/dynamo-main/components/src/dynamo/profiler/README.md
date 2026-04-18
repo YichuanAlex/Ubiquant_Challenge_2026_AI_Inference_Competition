@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b034e2451e63e87ac164e7e43c66d71e51498f965d0a4d1451ceaa5156df73b3
-size 515
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+
+# Profiler
+
+Documentation for the Dynamo Profiler has moved to [docs/components/profiler/](../../../../docs/components/profiler/README.md).
+
+- [Profiler Overview](../../../../docs/components/profiler/README.md)
+- [Profiler Guide](../../../../docs/components/profiler/profiler-guide.md)
+- [Profiler Examples](../../../../docs/components/profiler/profiler-examples.md)

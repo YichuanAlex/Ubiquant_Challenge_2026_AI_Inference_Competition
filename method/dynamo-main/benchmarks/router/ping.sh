@@ -1,3 +1,21 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:817c2bba35dd56930d21f3b64ff2b3de375d5efe260bb6ee747846c660484961
-size 692
+#!/bin/bash
+
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Get port from first argument, default to 8000 if not provided
+PORT=${1:-8000}
+
+curl -X POST http://localhost:${PORT}/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Accept: text/event-stream" \
+    -d '{
+    "model": "deepseek-ai/DeepSeek-R1-Distill-Llama-8B",
+    "messages": [
+        {"role": "system", "content": "You are a helpful assistant. Answer in 5 words."},
+        {"role": "user", "content": "What is 2+2?"}
+    ],
+    "stream": true,
+    "max_completion_tokens": 10,
+    "ignore_eos": true
+    }'

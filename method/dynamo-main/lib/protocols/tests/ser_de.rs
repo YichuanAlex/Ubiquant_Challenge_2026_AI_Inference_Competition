@@ -1,3 +1,38 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5ec635bfed75162638d2616b16f7d8c6332233a6dbca7fbe0e6f0bae66c22cee
-size 1449
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// Based on https://github.com/64bit/async-openai/ by Himanshu Neema
+// Original Copyright (c) 2022 Himanshu Neema
+// Licensed under MIT License (see ATTRIBUTIONS-Rust.md)
+//
+// Modifications Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES.
+// Licensed under Apache 2.0
+
+use dynamo_protocols::types::{
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+    CreateChatCompletionRequest, CreateChatCompletionRequestArgs,
+};
+
+#[tokio::test]
+async fn chat_types_serde() {
+    let request: CreateChatCompletionRequest = CreateChatCompletionRequestArgs::default()
+        .messages([
+            ChatCompletionRequestSystemMessageArgs::default()
+                .content("your are a calculator")
+                .build()
+                .unwrap()
+                .into(),
+            ChatCompletionRequestUserMessageArgs::default()
+                .content("what is the result of 1+1")
+                .build()
+                .unwrap()
+                .into(),
+        ])
+        .build()
+        .unwrap();
+    // serialize the request
+    let serialized = serde_json::to_string(&request).unwrap();
+    // deserialize the request
+    let deserialized: CreateChatCompletionRequest = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(request, deserialized);
+}

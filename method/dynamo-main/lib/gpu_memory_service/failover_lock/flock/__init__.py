@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9d26ad7210d962c39717b450673d35afc5132f3738dcdc21448c03e0f64843a6
-size 250
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from gpu_memory_service.failover_lock.flock.lock import FlockFailoverLock
+
+__all__ = ["FlockFailoverLock"]

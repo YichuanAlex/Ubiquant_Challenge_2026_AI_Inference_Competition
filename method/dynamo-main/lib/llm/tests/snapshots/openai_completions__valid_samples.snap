@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b0f09f1ca79b6bdf7ebda5841a25bfa41ce9a5707c47c819cf2b3111c5811784
-size 211
+---
+source: dynamo.llm/tests/openai_completions.rs
+description: should have only prompt and model fields
+expression: sample.request
+---
+{
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?"
+}

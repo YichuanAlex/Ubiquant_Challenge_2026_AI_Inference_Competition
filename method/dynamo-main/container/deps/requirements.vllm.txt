@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1aaea32b41fa2f465399d72e5eae906c7d96df422d92204cb3c78fbc29f98b74
-size 261
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# vLLM-specific runtime dependencies (multimodal features).
+
+av==15.0.0
+ftfy==6.3.1
+nvtx==0.2.14
+sentencepiece==0.2.1

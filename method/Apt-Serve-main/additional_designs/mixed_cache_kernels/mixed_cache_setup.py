@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:77173dc78cad9d7aca7e87c05b69e729821c21acdb860a66835ab0309b952501
-size 387
+from setuptools import setup, Extension
+from torch.utils.cpp_extension import CppExtension, CUDAExtension, BuildExtension
+
+setup(
+    name='mixed_cache_ops',
+    ext_modules=[
+        CUDAExtension(
+            name='mixed_cache_ops',
+            sources=['mixed_cache.cu'],
+        )
+    ],
+    cmdclass={'build_ext': BuildExtension}
+)
+
+#python mixed_cache_setup.py build_ext --inplace

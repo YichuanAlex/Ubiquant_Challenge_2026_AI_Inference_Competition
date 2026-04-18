@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9976d701850d7b5bfd685c9d9587b7a41106f907cb6a22404d27a9df5aa8af7a
-size 303
+{
+  "name": "ci-filter-tests",
+  "version": "1.0.0",
+  "description": "Tests for .github/filters.yaml pattern matching",
+  "scripts": {
+    "test": "node test-filters.js",
+    "coverage": "node test-filters.js --coverage"
+  },
+  "dependencies": {
+    "micromatch": "^4.0.8",
+    "yaml": "^2.7.1"
+  }
+}
+

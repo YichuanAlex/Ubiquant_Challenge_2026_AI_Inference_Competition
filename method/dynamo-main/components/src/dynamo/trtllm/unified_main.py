@@ -1,3 +1,22 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:99ba7322f132683479468860cb08dbdc1b0736c94807406ad7fe70e0d5f14494
-size 537
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Unified entry point for the TensorRT-LLM backend.
+
+Usage:
+    python -m dynamo.trtllm.unified_main <trtllm args>
+
+See dynamo/common/backend/README.md for architecture, response contract,
+and feature gap details.
+"""
+
+from dynamo.common.backend.run import run
+from dynamo.trtllm.llm_engine import TrtllmLLMEngine
+
+
+def main():
+    run(TrtllmLLMEngine)
+
+
+if __name__ == "__main__":
+    main()

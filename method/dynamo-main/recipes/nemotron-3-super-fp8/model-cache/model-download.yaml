@@ -1,3 +1,42 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f62324097b09160d17fd72002607411b63afa4e2bd57ac9438b4d0e28ae7b9bd
-size 1166
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: model-download
+spec:
+  backoffLimit: 3
+  completions: 1
+  parallelism: 1
+  template:
+    metadata:
+      labels:
+        app: model-download
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: model-download
+          image: python:3.10-slim
+          command: ["sh", "-c"]
+          envFrom:
+            - secretRef:
+                name: hf-token-secret
+          env:
+            - name: MODEL_NAME
+              value: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+            - name: HF_HOME
+              value: /model-store
+            - name: HF_XET_HIGH_PERFORMANCE
+              value: "1"
+          args:
+            - |
+              set -eux
+              pip install --no-cache-dir huggingface_hub==1.11.0
+              hf download $MODEL_NAME
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-store
+      volumes:
+      - name: model-cache
+        persistentVolumeClaim:
+          claimName: model-cache

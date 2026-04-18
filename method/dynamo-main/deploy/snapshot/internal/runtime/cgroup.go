@@ -1,3 +1,37 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:493de95beaed2c072f29a78eafc9451fcddf2189b225f7c4574a84714ff62149
-size 911
+package runtime
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+const HostCgroupPath = "/sys/fs/cgroup"
+
+// ResolveCgroupRootFromHostPID reads the unified cgroup v2 path for a PID via /host/proc.
+func ResolveCgroupRootFromHostPID(pid int) (string, error) {
+	cgroupFile := filepath.Join(HostProcPath, strconv.Itoa(pid), "cgroup")
+	data, err := os.ReadFile(cgroupFile)
+	if err != nil {
+		return "", fmt.Errorf("failed reading %s: %w", cgroupFile, err)
+	}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "0::") {
+			continue
+		}
+		path := strings.TrimPrefix(line, "0::")
+		if path == "" {
+			return "/", nil
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		return filepath.Clean(path), nil
+	}
+
+	return "", fmt.Errorf("unified cgroup entry not found in %s", cgroupFile)
+}

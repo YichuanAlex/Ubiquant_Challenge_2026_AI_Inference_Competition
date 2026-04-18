@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:483a986798d101e7886079a7be464051741c71c318df119d0be4f5ca1262a39f
-size 222
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Benchmark and profiling tool dependencies.
+
+aiperf==0.6.0
+genai-perf==0.0.15

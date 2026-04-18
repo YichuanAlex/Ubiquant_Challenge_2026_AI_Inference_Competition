@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ea797ce19fd26d4eed2b16811639ab2c9757dcf2132ea573faa6498b0f8e3232
-size 236
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Local outputs
+outputs
+outputs_video
+
+# Python caches
+__pycache__
+*.pyc
+.git
+local/.runtime

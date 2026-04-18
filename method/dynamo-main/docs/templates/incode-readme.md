@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:76ee6b3c1a7e76286b9176c0a74e5f6c5f817e5ddf845a6649f9ec65b427f0aa
-size 399
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: In-Code README
+---
+
+{/* One-sentence description */}
+
+See `docs/components/`\<component>`/` for full documentation.
+
+{/* When using this template, replace with actual link to component docs.
+     For backends, use: docs/backends/`<backend>`/ */}

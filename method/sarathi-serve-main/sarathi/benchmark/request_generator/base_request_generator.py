@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7f69eca4d2e1fbcd16ab4b3aaa40c5bba175289e67c660d30ce352a4eb2955f2
-size 503
+import json
+from abc import ABC, abstractmethod
+from typing import List
+
+from sarathi.benchmark.config import BaseRequestGeneratorConfig
+from sarathi.benchmark.entities import Request
+
+
+class BaseRequestGenerator(ABC):
+
+    def __init__(self, config: BaseRequestGeneratorConfig):
+        self.config = config
+
+    @abstractmethod
+    def generate_requests(self) -> List[Request]:
+        pass
+
+    def generate(self) -> List[Request]:
+        requests = self.generate_requests()
+        return requests

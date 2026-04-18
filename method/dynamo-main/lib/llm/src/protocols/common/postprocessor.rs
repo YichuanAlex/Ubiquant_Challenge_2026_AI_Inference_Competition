@@ -1,3 +1,31 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:dbf1f9264fff44140ef0720037160810bd032b9f0f1cb7bfa214b9208f09c4fd
-size 853
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use serde::{Deserialize, Serialize};
+
+use super::FinishReason;
+use crate::protocols::TokenIdType;
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct PostprocessedResponse {
+    /// Model Deployment Card checksum
+    pub mdcsum: String,
+
+    // if the number of slots for a given request is greater than 1
+    // this indicates the index of the slot for the response
+    pub index: Option<usize>,
+
+    pub finish_reason: Option<FinishReason>,
+
+    // new token_ids
+    pub token_ids: Vec<TokenIdType>,
+
+    // tokens
+    pub tokens: Option<Vec<Option<String>>>,
+
+    // decoded text
+    pub text: Option<String>,
+
+    /// cumulative log probabilities
+    pub cum_log_probs: Option<f64>,
+}

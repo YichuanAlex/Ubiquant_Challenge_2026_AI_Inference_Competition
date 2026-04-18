@@ -1,3 +1,44 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a728c8752a1e602a819efe086eb19ab39a2c8d62c8df427e3436b4d274f385fd
-size 1220
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "kvbm-physical"
+version = "1.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dynamo-memory = { workspace = true }
+kvbm-common = { workspace = true }
+kvbm-kernels = { workspace = true }
+velo = { workspace = true }
+
+aligned-vec = "0.6.4"
+anyhow = { workspace = true }
+bincode = { version = "2.0.0", features = ["serde", "derive"] }
+blake3 = { version = "1" }
+cudarc = { workspace = true, features = ["nccl"] }
+derive_builder = { workspace = true }
+futures = { workspace = true }
+derive-getters = { version = "0.5" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+validator = { workspace = true }
+
+[features]
+default = []
+collectives = []
+testing = []
+testing-kvbm = []
+testing-nixl-gds = []
+
+[dev-dependencies]
+dynamo-memory = { workspace = true, features = ["unsafe-slices"] }
+rstest = "0.26"
+tokio = { workspace = true, features = ["test-util"] }

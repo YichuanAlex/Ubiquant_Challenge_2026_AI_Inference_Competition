@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:389079752f72e11b163f42f2eed12aad703687455f0bc248a0197a2693853ab9
-size 241
+[build-system]
+requires = [
+    "ninja",
+    "packaging",
+    "setuptools",
+    "torch==2.9.0",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[tool.isort]
+profile = "black"
+known_first_party = "sarathi"
+known_third_party = "wandb"

@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:6c7ebf0d53f486b058474a9dfd80e1db777b4cb92bcfed80e5dfdc7c4ab580c4
-size 232
+---
+source: dynamo.llm/tests/openai_completions.rs
+description: "should have prompt, model, and top_p fields"
+expression: sample.request
+---
+{
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?",
+  "top_p": 0.0
+}

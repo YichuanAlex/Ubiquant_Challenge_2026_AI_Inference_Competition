@@ -1,3 +1,86 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ef9b255022e6defa74cf5fb8ff1aaa155f7b21008ae43f8732bd06df9b017438
-size 2156
+{
+    "LenSpec": {
+        "Small": [0, 128],
+        "Medium": [128, 256],
+        "Large": [256, 512],
+        "XL": [512, 1024]
+    },
+
+    "SamplingParam": {
+        "Deterministic" : {
+                "temperature": 0.0,
+                "top_p": 1.0,
+                "top_k": 1,
+                "penalty_repetition": 1.0,
+                "penalty_frequency": 0.0,
+                "penalty_presence": 0.0 
+        },
+        "Normal" : {
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "top_k": 50,
+                "penalty_repetition": 1.1,
+                "penalty_frequency": 0.2,
+                "penalty_presence": 0.2 
+        },
+        "HighEntropy" : {
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "top_k": 100,
+                "penalty_repetition": 1.05,
+                "penalty_frequency": 0.0,
+                "penalty_presence": 0.0 
+        },
+        "ExtremePenalty" : {
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "top_k": 20,
+                "penalty_repetition": 1.8,
+                "penalty_frequency": 1.2,
+                "penalty_presence": 1.2 
+        }
+    },
+
+    "SLA": {
+        "Bronze": {
+            "ttft_avg": 10,
+            "tpot_p50": 1,
+            "tpot_p75": 2
+        },
+        "Silver": {
+            "ttft_avg": 8,
+            "tpot_p50": 0.8,
+            "tpot_p75": 1.6
+        },
+        "Gold": {
+            "ttft_avg": 6,
+            "tpot_p50": 0.4,
+            "tpot_p75": 0.8
+        },
+        "Platinum": {
+            "ttft_avg": 4,
+            "tpot_p50": 0.2,
+            "tpot_p75": 0.4
+        },
+        "Diamond": {
+            "ttft_avg": 2,
+            "tpot_p50": 0.1,
+            "tpot_p75": 0.2
+        },
+        "Stellar": {
+            "ttft_avg": 1.5,
+            "tpot_p50": 0.08,
+            "tpot_p75": 0.16
+        },
+        "Glorious": {
+            "ttft_avg": 0.8,
+            "tpot_p50": 0.04,
+            "tpot_p75": 0.04
+        },
+        "Supreme": {
+            "ttft_avg": 0.5,
+            "tpot_p50": 0.02,
+            "tpot_p75": 0.01
+        }
+    }
+}

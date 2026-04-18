@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5e885645a468e6b59c084827a154c126af03e8d5a2ce652ee149b52cddd12e85
-size 480
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+backend: pytorch
+cuda_graph_config:
+  max_batch_size: 8
+kv_cache_config:
+  enable_partial_reuse: false
+  free_gpu_memory_fraction: 0.80
+  max_tokens: 8192
+kv_connector_config:
+  connector_module: kvbm.trtllm_integration.connector
+  connector_scheduler_class: DynamoKVBMConnectorLeader
+  connector_worker_class: DynamoKVBMConnectorWorker

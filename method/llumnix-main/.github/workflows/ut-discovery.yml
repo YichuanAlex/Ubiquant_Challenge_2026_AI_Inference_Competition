@@ -1,3 +1,35 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cec4290464dbe09aadef439b4d0ab0c98ddf0af000880ed5ccd029855d9bf774
-size 920
+name: Python discovery Unit Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  DEV_IMAGE: llumnix-registry.cn-beijing.cr.aliyuncs.com/llumnix/vllm:dev-20260326-165612
+
+jobs:
+  discovery-test:
+    name: Discovery Tests
+    runs-on: [self-hosted, cpu]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+
+      - name: Run discovery tests in dev container
+        run: |
+          docker run --rm \
+            --network host \
+            -v "$(pwd):/workspace" \
+            -w /workspace/python/discovery \
+            ${{ env.DEV_IMAGE }} \
+            bash -c "pip install -r requirements.txt && make proto && make install && make test"
+
+      - name: Fix file ownership
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) .

@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ec78a5f59fa48e11dce393f914e7f9215bb5243c6c232cc18c33016628e9f9b9
-size 342
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+/// A trait allowing to get/set a revision on an object.
+/// NATS uses this to ensure atomic updates.
+pub trait Versioned {
+    fn revision(&self) -> u64;
+    fn set_revision(&mut self, r: u64);
+}

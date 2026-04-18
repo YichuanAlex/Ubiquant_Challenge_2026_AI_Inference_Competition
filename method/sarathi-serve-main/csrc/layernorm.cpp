@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ef274291c0021a7d5cd0c856cc42a3e0acae05e6bbd4100cbc17d5047b5962f5
-size 292
+#include <torch/extension.h>
+
+void rms_norm(
+  torch::Tensor& out,
+  torch::Tensor& input,
+  torch::Tensor& weight,
+  float epsilon);
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def(
+    "rms_norm",
+    &rms_norm,
+    "Apply Root Mean Square (RMS) Normalization to the input tensor.");
+}

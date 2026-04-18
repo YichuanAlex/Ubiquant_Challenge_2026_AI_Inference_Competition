@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:861c590c157f33278206d63277905ca2f81a71bab639100e0cea0f656d691c9f
-size 429
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Video diffusion request handlers for TensorRT-LLM backend.
+
+This module provides handlers for video generation using diffusion models.
+"""
+
+from dynamo.trtllm.request_handlers.video_diffusion.video_handler import (
+    VideoGenerationHandler,
+)
+
+__all__ = ["VideoGenerationHandler"]

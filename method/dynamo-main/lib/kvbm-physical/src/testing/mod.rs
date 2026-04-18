@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a0b7a25ee1a19dedf10ee996a945207579f0352e8616d3a814e2e3a34603565b
-size 234
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Physical layout and transfer testing utilities.
+
+mod physical;
+
+pub use physical::*;

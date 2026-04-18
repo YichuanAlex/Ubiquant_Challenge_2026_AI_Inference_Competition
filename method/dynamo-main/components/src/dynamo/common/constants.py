@@ -1,3 +1,23 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d1791528a9d3c197ed5e90258da0b30fdbca85ea73a36ee24af1f9027146102c
-size 550
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Shared constants for Dynamo backends."""
+
+from enum import Enum
+
+
+class DisaggregationMode(Enum):
+    """Disaggregation mode for LLM workers."""
+
+    AGGREGATED = "agg"
+    PREFILL = "prefill"
+    DECODE = "decode"
+    ENCODE = "encode"
+
+
+class EmbeddingTransferMode(Enum):
+    """Embedding transfer mode for LLM workers."""
+
+    LOCAL = "local"
+    NIXL_WRITE = "nixl-write"
+    NIXL_READ = "nixl-read"

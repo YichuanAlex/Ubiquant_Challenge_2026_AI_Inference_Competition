@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cc8bf0c344e2dca7c21f1dc09c14f264449fb574bf99237a13264416b64ac450
-size 306
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+import os
+
+if "PYTHONHASHSEED" not in os.environ:
+    os.environ["PYTHONHASHSEED"] = "0"
+
+from dynamo.vllm.main import main
+
+if __name__ == "__main__":
+    main()

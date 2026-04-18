@@ -1,3 +1,29 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:75101f5b2789afb63c46f9b8b4bf9b731213e83a402b7cfe287fa7af5d644766
-size 842
+from abc import ABC, abstractmethod
+from typing import List
+
+from llumnix.instance_info import InstanceStatus
+from llumnix.utils import MigrationParams, RequestIDType
+
+
+class BaseEngineClient(ABC):
+    """Abstract Base Class for engine clients."""
+
+    @abstractmethod
+    async def get_instance_status(self) -> InstanceStatus:
+        """Get instance status from the engine core."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def migrate_out(
+        self,
+        dst_engine_host: str,
+        dst_engine_port: int,
+        migration_params: MigrationParams,
+    ) -> bool:
+        """Send migration request to the engine core."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def abort(self, request_ids: List[RequestIDType]) -> None:
+        """Abort request."""
+        raise NotImplementedError

@@ -1,3 +1,43 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:67974cfead1b221fa033f4884d34689bb5859d26153e123490ea4dcfef890f10
-size 992
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: Feature README
+---
+
+{/* 2-3 sentence overview of this cross-cutting feature */}
+
+## Backend Support
+
+{/* Copy actual backend support from existing feature docs */}
+{/* Example pattern (from Multimodal index.md): */}
+
+| Backend | Status | Notes |
+|---------|--------|-------|
+| vLLM | ✅ | Full support |
+| SGLang | ✅ | |
+| TensorRT-LLM | 🚧 | Limited support |
+
+See the Feature Matrix for full compatibility.
+
+## Overview
+
+{/* How this feature works across backends */}
+
+## Quick Start
+
+{/* Add minimal example from existing feature docs */}
+
+## Backend-Specific Guides
+
+| Backend | Guide |
+|---------|-------|
+| vLLM | `<feature>_vllm.md` |
+| SGLang | `<feature>_sglang.md` |
+| TensorRT-LLM | `<feature>_trtllm.md` |
+
+{/* Convert table rows to markdown links */}
+
+## See Also
+
+- {/* Related features */}
+- {/* Related components */}

@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b4d5c9226e696adcff865f2c21462f6795ab1c42c7ee1d9e12222f4d49423686
-size 311
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Code generation utilities for Dynamo project
+//!
+//! This crate provides tools to generate code from Rust sources to other languages.
+
+pub mod prometheus_parser;

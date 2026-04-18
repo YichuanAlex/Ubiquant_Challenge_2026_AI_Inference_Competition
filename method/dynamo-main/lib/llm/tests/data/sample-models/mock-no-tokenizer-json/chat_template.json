@@ -1,3 +1,1 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8ec4c49ef7c555ba17f88bb1988c24af6922a8f3d6891ace4b2f55aba531e733
-size 349
+{"chat_template": "{%- for message in messages %}{%- if message.role == 'user' %}{{ '<|im_start|>user\n' + message.content + '<|im_end|>\n' }}{%- elif message.role == 'assistant' %}{{ '<|im_start|>assistant\n' + message.content + '<|im_end|>\n' }}{%- endif %}{%- endfor %}{%- if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{%- endif %}"}

@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c297ea361f236d3d3831a2a7f3bba5c190e1d2f93bdcb64f6f897701247f9aa1
-size 256
+{
+  "architectures": ["Qwen3_5MoeForCausalLM"],
+  "model_type": "qwen3_5_moe",
+  "text_config": {
+    "eos_token_id": 248044,
+    "max_position_embeddings": 262144,
+    "num_hidden_layers": 36,
+    "num_attention_heads": 16,
+    "vocab_size": 248064
+  }
+}

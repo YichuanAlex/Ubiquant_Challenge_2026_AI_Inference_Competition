@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:bf7b918a3e25d0ac982408a28586a6c47fc6e9b22e7b076f7fa9d9faad2ec400
-size 387
+#  SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#  SPDX-License-Identifier: Apache-2.0
+
+try:
+    from ._version import __version__
+except Exception:
+    try:
+        from importlib.metadata import version as _pkg_version
+
+        __version__ = _pkg_version("ai-dynamo")
+    except Exception:
+        __version__ = "0.0.0+unknown"

@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a372d97c4f3b6c46cf3a34dcada31952be541f02a3bef74763593e4fb3ec5f4e
-size 419
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Dynamo Logits Processing - Backend-agnostic logits processors.
+
+This module provides the BaseLogitsProcessor protocol that can be used
+across different backend adapters (TRT-LLM, vLLM, SGLang).
+"""
+
+from .base import BaseLogitsProcessor
+
+__all__ = ["BaseLogitsProcessor"]

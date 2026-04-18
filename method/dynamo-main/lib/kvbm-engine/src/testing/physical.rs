@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fd346a8411a8e3c84d96dc66f3e66fb7517769bc336c9a9f97bb3ebfad03a778
-size 442
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Physical layout and transfer testing utilities.
+//!
+//! Note: These are local implementations using workspace-local types.
+//! When kvbm-physical moves to a workspace path dependency, these can
+//! be replaced with re-exports from `kvbm_physical::testing`.
+
+pub use kvbm_physical::testing::*;

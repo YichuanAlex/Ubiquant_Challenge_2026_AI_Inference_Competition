@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8e77051145350f0cc35426978cb587c7d382b4318c1f4229baa917616d4bcd60
-size 237
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from dynamo.indexer.main import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,3 +1,19 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:216cb36244c6d7e18d9cc8c4e7fbee840bc27dee5ca99092e9e62bef7b2ea8fd
-size 452
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Entry point for the sample backend.
+
+Usage:
+    python -m dynamo.common.backend.sample_main --model-name test-model
+"""
+
+from dynamo.common.backend.run import run
+from dynamo.common.backend.sample_engine import SampleLLMEngine
+
+
+def main():
+    run(SampleLLMEngine)
+
+
+if __name__ == "__main__":
+    main()

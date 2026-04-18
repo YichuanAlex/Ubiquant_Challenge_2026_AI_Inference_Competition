@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:eaefc8e1ce974799e89a8427a4b65ed5378af744a7eab1479376ca059b05bbb4
-size 377
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use std::time::Duration;
+
+pub trait PrefillLoadEstimator: Send + Sync {
+    fn predict_prefill_duration(
+        &self,
+        batch_size: usize,
+        effective_isl: usize,
+        prefix: usize,
+    ) -> anyhow::Result<Duration>;
+}

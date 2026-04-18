@@ -1,3 +1,30 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:980bf96841a76d8ef01e3f5b9cfc7de41bf04f11854a9e57c0d8ab892345f035
-size 450
+# Patterns to ignore when building packages.
+# This supports shell glob matching, relative path matching, and
+# negation (prefixed with !). Only one pattern per line.
+.DS_Store
+# Common VCS dirs
+.git/
+.gitignore
+.bzr/
+.bzrignore
+.hg/
+.hgignore
+.svn/
+# Common backup files
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+# Various IDEs
+.project
+.idea/
+*.tmproj
+.vscode/
+# test files
+test-values.yaml
+minikube-demo-values.yaml
+# subchart sources
+components/
+bin/
+Makefile

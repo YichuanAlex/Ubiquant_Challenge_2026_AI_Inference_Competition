@@ -1,3 +1,29 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d5d5030476ffab2c5c52ee2fa4b0c0e4f8a91576be549760ce43411eed5861da
-size 800
+#!/usr/bin/env bpftrace
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+//
+// TCP retransmissions (network backpressure indicator).
+// High retransmit rates indicate network congestion or packet loss.
+//
+// Usage: sudo bpftrace tcpretrans.bt
+
+tracepoint:tcp:tcp_retransmit_skb
+{
+    printf("%-8d %-16s %s:%d -> %s:%d state=%d\n",
+        pid, comm,
+        ntop(args.saddr), args.sport,
+        ntop(args.daddr), args.dport,
+        args.state);
+    @retrans[ntop(args.daddr), args.dport] = count();
+    @total = count();
+}
+
+interval:s:10
+{
+    printf("\n--- TCP Retransmissions (last 10s) ---\n");
+    printf("Total: ");
+    print(@total);
+    print(@retrans);
+    clear(@retrans);
+    clear(@total);
+}

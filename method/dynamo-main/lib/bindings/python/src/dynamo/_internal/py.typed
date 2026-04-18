@@ -1,3 +1,4 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e6a5cdc9b18e90ea6c8dbd7735e5e46162c6462fa18279e347f702ac6232ee8a
-size 198
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# PEP 561 marker file indicating this package is typed

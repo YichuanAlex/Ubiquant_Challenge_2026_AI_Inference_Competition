@@ -1,3 +1,245 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f7a2c85db62f7fc700a71e7c6da6f7f5de36770337e4b98c1eeba69c6e378190
-size 6976
+package resolver
+
+import (
+	"context"
+	"fmt"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"time"
+
+	"google.golang.org/protobuf/proto"
+	"k8s.io/klog/v2"
+
+	"llumnix/pkg/consts"
+	"llumnix/pkg/redis"
+	"llumnix/pkg/types"
+)
+
+type redisResolver struct {
+	inferType consts.InferType
+
+	mu                sync.RWMutex
+	instances         types.LLMInstanceSlice
+	podDiscoveryInfos map[string]*PodDiscoveryInfo
+
+	watcher *Watcher
+
+	redisClient       redis.RedisClient
+	ctx               context.Context
+	refreshIntervalMs int
+	statusTTLMs       int
+}
+
+func newRedisResolver(
+	inferType consts.InferType,
+	host string,
+	port string,
+	username string,
+	password string,
+	socketTimeout float64,
+	retryTimes int,
+	refreshIntervalMs int,
+	StatusTTLMs int) (*redisResolver, error) {
+
+	redisClient, err := redis.NewRedisStandaloneClientWithRetry(host, port, username, password, socketTimeout, retryTimes)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &redisResolver{
+		inferType:         inferType,
+		redisClient:       redisClient,
+		ctx:               context.Background(),
+		watcher:           NewWatcher(),
+		refreshIntervalMs: refreshIntervalMs,
+		statusTTLMs:       StatusTTLMs,
+	}
+
+	go r.refreshLoop()
+
+	return r, nil
+}
+
+func (r *redisResolver) GetLLMInstances() (types.LLMInstanceSlice, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	instances := make(types.LLMInstanceSlice, 0, len(r.instances))
+	instances = append(instances, r.instances...)
+	return instances, nil
+}
+
+func (r *redisResolver) Watch(ctx context.Context) (<-chan types.LLMInstanceSlice, <-chan types.LLMInstanceSlice, error) {
+	return r.watcher.Watch(ctx, r.GetLLMInstances)
+}
+
+func (r *redisResolver) refreshLoop() {
+	defer func() {
+		if err := recover(); err != nil {
+			klog.Errorf("Redis Resolver panic: %v\n%s", err, string(debug.Stack()))
+		}
+	}()
+
+	ticker := time.NewTicker(time.Millisecond * time.Duration(r.refreshIntervalMs))
+	defer ticker.Stop()
+
+	for range ticker.C {
+		r.refresh()
+	}
+}
+
+func (r *redisResolver) refresh() {
+	PodInRedis, err := r.redisClient.GetKeysByPrefix(r.ctx, LlumnixDiscovery)
+	if err != nil {
+		klog.Fatalf("Error getting keys by prefix: %v", err)
+		return
+	}
+
+	PodInfos, err := r.redisClient.MGetBytes(r.ctx, PodInRedis)
+	if err != nil {
+		klog.Fatalf("Error getting instance metadata: %v", err)
+		return
+	}
+
+	newPodDiscoveryInfos := make(map[string]*PodDiscoveryInfo)
+	newInstances := types.LLMInstanceSlice{}
+	for idx, PodInfoBytes := range PodInfos {
+		if PodInfoBytes == nil {
+			klog.Warningf("Empty data for key: %s", PodInRedis[idx])
+			continue
+		}
+
+		podInfo := &PodDiscoveryInfo{}
+		if err := proto.Unmarshal(PodInfoBytes, podInfo); err != nil {
+			klog.Errorf("Error unmarshaling pod info for key %s: %v", PodInRedis[idx], err)
+			continue
+		}
+
+		if podInfo.TimestampMs < time.Now().UnixMilli()-int64(r.statusTTLMs) {
+			klog.Warningf("Pod info for %s is expired", podInfo.PodName)
+			if err := r.redisClient.Del(r.ctx, PodInRedis[idx]); err != nil {
+				klog.Warningf("Failed to delete expired pod info %s: %v", PodInRedis[idx], err)
+			}
+			continue
+		}
+
+		var filteredInstances []*InstanceDiscoveryInfo
+		for _, instance := range podInfo.Instances {
+			if consts.InferType(instance.InstanceType) != r.inferType && r.inferType != consts.InferTypeAll {
+				// all dp ranks in a pod should be in the same infer type
+				continue
+			}
+
+			newInstances = append(newInstances, types.LLMInstance{
+				Version:   instance.Version,
+				ID:        fmt.Sprintf("%s_dp%d", podInfo.PodName, instance.DpRank),
+				Model:     instance.Model,
+				InferType: consts.InferType(instance.InstanceType),
+				Endpoint: types.Endpoint{
+					Host: instance.EntrypointIp,
+					Port: int(instance.EntrypointPort),
+				},
+				AuxIp:   instance.KvTransferIp,
+				AuxPort: int(instance.KvTransferPort),
+				DPRank:  int(instance.DpRank),
+				DPSize:  int(instance.DpSize),
+			})
+			filteredInstances = append(filteredInstances, instance)
+		}
+
+		if len(filteredInstances) > 0 {
+			podInfo.Instances = filteredInstances
+			newPodDiscoveryInfos[podInfo.PodName] = podInfo
+		}
+	}
+
+	r.mu.Lock()
+	added, removed := DiffSets(r.instances, newInstances, func(w types.LLMInstance) string {
+		return w.Id()
+	})
+	if len(added) > 0 || len(removed) > 0 {
+		klog.V(4).Infof("redis resolver (inferType=%s): Added: %d, Removed: %d, Total: %d",
+			r.inferType, len(added), len(removed), len(newInstances))
+	}
+	r.podDiscoveryInfos = newPodDiscoveryInfos
+	r.instances = newInstances
+	r.mu.Unlock()
+
+	if len(added) > 0 || len(removed) > 0 {
+		r.watcher.notifyObservers(added, removed)
+	}
+}
+
+type RedisResolverBuilder struct{}
+
+// Schema returns the schema identifier for this builder: "endpoints".
+func (r *RedisResolverBuilder) Schema() string {
+	return "redis"
+}
+
+// Build creates a new EndpointsResolver instance from the provided arguments.
+// The args map must contain an uri key with a valid endpoints URI string.
+func (r *RedisResolverBuilder) Build(uri string, args BuildArgs) (LLMResolver, error) {
+	if uri == "" {
+		return nil, fmt.Errorf("missing or invalid 'uri' argument")
+	}
+	// Ensure the URI has the correct prefix
+	if !strings.HasPrefix(uri, RedisUriPrefix) {
+		return nil, fmt.Errorf("invalid URI format: must start with '%s'", RedisUriPrefix)
+	}
+	uri = strings.TrimPrefix(uri, RedisUriPrefix)
+
+	parts := strings.Split(uri, ":")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid URI format: expected host:port, got %s", uri)
+	}
+	host := parts[0]
+	port := parts[1]
+
+	instanceTypeStr, ok := args["instance_type"].(string)
+	if !ok || instanceTypeStr == "" {
+		return nil, fmt.Errorf("missing instance_type or invalid instance_type build args: %v", instanceTypeStr)
+	}
+	inferType := consts.InferType(instanceTypeStr)
+
+	username, ok := args["redis_username"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing username or invalid username build args: %v", username)
+	}
+
+	password, ok := args["redis_password"].(string)
+	if !ok {
+		return nil, fmt.Errorf("missing password or invalid password build args: %v", password)
+	}
+
+	socketTimeout, ok := args["redis_socketTimeout"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("missing socketTimeout or invalid socketTimeout build args: %v", socketTimeout)
+	}
+
+	retryTimes, ok := args["redis_retryTimes"].(int)
+	if !ok {
+		return nil, fmt.Errorf("missing retryTimes or invalid retryTimes build args: %v", retryTimes)
+	}
+
+	refreshIntervalMs, ok := args["redis_discovery_refresh_interval_ms"].(int)
+	if !ok {
+		return nil, fmt.Errorf("missing refreshIntervalMs or invalid refreshIntervalMs build args: %v", refreshIntervalMs)
+	}
+
+	statusTTLMs, ok := args["redis_discovery_status_ttl"].(int)
+	if !ok {
+		return nil, fmt.Errorf("missing statusTTLMs or invalid statusTTLMs build args: %v", statusTTLMs)
+	}
+
+	return newRedisResolver(inferType, host, port, username, password, socketTimeout, retryTimes, refreshIntervalMs, statusTTLMs)
+}
+
+const (
+	RedisUriPrefix   = "redis://"
+	LlumnixDiscovery = "llumnix:discovery:"
+)
+
+func init() {
+	RegisterLLM(&RedisResolverBuilder{})
+}

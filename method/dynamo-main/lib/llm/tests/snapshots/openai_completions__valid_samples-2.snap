@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f3c17e13e863227acca4c6bf5ee27b8ced61745e657ba1915cf8c9b052bc2afc
-size 230
+---
+source: tests/openai_completions.rs
+description: "should have prompt, model, and max_tokens fields"
+expression: sample.request
+---
+{
+  "max_tokens": 10,
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?"
+}

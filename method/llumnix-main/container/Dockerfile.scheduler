@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:25c5f8ab635debe712442f473f861be849646c0ec2f25367a8bb721b05b01504
-size 328
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./bin/scheduler /usr/local/bin/scheduler
+
+COPY ./lib/sglang/sgl-model-gateway/bindings/golang/target/release/*.a /usr/lib
+
+WORKDIR /scheduler

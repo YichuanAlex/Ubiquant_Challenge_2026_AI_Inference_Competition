@@ -1,3 +1,39 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9ff48a0c9e49ddd5ff9778160e7af7bb688da613a9910aceb47b8a8013507bbc
-size 1047
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use indicatif::{ProgressBar, ProgressStyle};
+
+pub(super) struct ReplayProgress {
+    bar: ProgressBar,
+}
+
+impl ReplayProgress {
+    pub(super) fn new(total_requests: usize, label: &'static str) -> Self {
+        let bar = ProgressBar::new(total_requests as u64);
+        bar.set_style(
+            ProgressStyle::with_template(
+                "[{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({eta}) {msg}",
+            )
+            .expect("progress bar template must be valid")
+            .progress_chars("#>-"),
+        );
+        bar.set_message(label);
+        Self { bar }
+    }
+
+    pub(super) fn inc_completed(&self) {
+        self.bar.inc(1);
+    }
+
+    pub(super) fn finish(&self) {
+        self.bar.finish_and_clear();
+    }
+}
+
+impl Drop for ReplayProgress {
+    fn drop(&mut self) {
+        if !self.bar.is_finished() {
+            self.bar.finish_and_clear();
+        }
+    }
+}

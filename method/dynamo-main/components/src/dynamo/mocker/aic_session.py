@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:07ca34b4104e2d58300e6f229e3341be62de0f313809724d0dface692b4e27ca
-size 328
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Backward-compatible mocker wrapper around the shared internal AIC bridge."""
+
+from dynamo._internal.aic import AicSession, create_session
+
+__all__ = ["AicSession", "create_session"]

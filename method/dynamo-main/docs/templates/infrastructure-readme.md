@@ -1,3 +1,29 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a265a0506b084f7682853a2ffd153fbde2177a7e776eb77961dad0163e21e263
-size 571
+---
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+title: Infrastructure README
+---
+
+{/* 2-3 sentence overview of this infrastructure topic. */}
+
+## Quick Start
+
+{/* Minimal steps to get started */}
+
+## Guides
+
+| Guide | Path |
+|-------|------|
+| Guide 1 | `<subtopic1>.md` |
+| Guide 2 | `<subtopic2>.md` |
+
+## Reference
+
+{/* Links to reference material */}
+
+## See Also
+
+| Topic | Path |
+|-------|------|
+| Related topic 1 | `../related/` |
+| Related topic 2 | `../other/` |

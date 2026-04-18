@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fc2581bb289aca39b7ea1dbdbaa9d4267d337bfea73badb3670ce1955358a533
-size 149
+# E2E test results - don't commit test artifacts to git
+e2e_scaling_results/
+
+# Temporary files
+*.tmp
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

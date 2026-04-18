@@ -1,3 +1,79 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:bc89f41a78da3e7b79a5aa42cdc5e57737259068c86ea3c8ea5e04f3037b4f51
-size 2860
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+pub use super::config::ToolCallConfig;
+pub use super::parsers::detect_and_parse_tool_call;
+
+/// Try parsing a string as a structured tool call, for aggregation usage.
+///
+/// If successful, returns a `ChatCompletionMessageToolCall`.
+pub async fn try_tool_call_parse_aggregate(
+    message: &str,
+    parser_str: Option<&str>,
+    tools: Option<&[super::ToolDefinition]>,
+) -> anyhow::Result<(
+    Vec<dynamo_protocols::types::ChatCompletionMessageToolCall>,
+    Option<String>,
+)> {
+    if parser_str.is_none() {
+        tracing::debug!("No tool parser provided. Trying parsing with default parser.");
+    } else {
+        tracing::debug!("Using tool parser: {:?}", parser_str);
+    }
+    let (parsed, content) = detect_and_parse_tool_call(message, parser_str, tools).await?;
+    if parsed.is_empty() {
+        return Ok((vec![], content));
+    }
+    Ok((
+        parsed
+            .into_iter()
+            .map(
+                |parsed| dynamo_protocols::types::ChatCompletionMessageToolCall {
+                    id: parsed.id,
+                    r#type: dynamo_protocols::types::FunctionType::Function,
+                    function: dynamo_protocols::types::FunctionCall {
+                        name: parsed.function.name,
+                        arguments: parsed.function.arguments,
+                    },
+                },
+            )
+            .collect(),
+        content,
+    ))
+}
+
+/// Try parsing a string as a structured tool call, for streaming (delta) usage.
+///
+/// If successful, returns a `ChatCompletionMessageToolCallChunk`.
+pub async fn try_tool_call_parse_stream(
+    message: &str,
+    parser_str: Option<&str>,
+    tools: Option<&[super::ToolDefinition]>,
+) -> anyhow::Result<(
+    Vec<dynamo_protocols::types::ChatCompletionMessageToolCallChunk>,
+    Option<String>,
+)> {
+    let (parsed, content) = detect_and_parse_tool_call(message, parser_str, tools).await?;
+    if parsed.is_empty() {
+        return Ok((vec![], content));
+    }
+    Ok((
+        parsed
+            .into_iter()
+            .enumerate()
+            .map(
+                |(idx, parsed)| dynamo_protocols::types::ChatCompletionMessageToolCallChunk {
+                    index: idx as u32,
+                    id: Some(parsed.id),
+                    r#type: Some(dynamo_protocols::types::FunctionType::Function),
+                    function: Some(dynamo_protocols::types::FunctionCallStream {
+                        name: Some(parsed.function.name),
+                        arguments: Some(parsed.function.arguments),
+                    }),
+                    // Add other fields as needed if required by the struct definition
+                },
+            )
+            .collect(),
+        content,
+    ))
+}

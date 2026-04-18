@@ -1,3 +1,44 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a7ee9e5898f9fed92cf643baec8dda0cfa4a037f4577e8d989131afd0da8b6c5
-size 1423
+name: 'Teardown Dynamo Operator'
+description: 'Delete a vCluster and its host namespace'
+
+inputs:
+  kubeconfig_base64:
+    description: 'Base64-encoded kubeconfig for host cluster access'
+    required: true
+  vcluster_name:
+    description: 'Name of the vCluster to delete'
+    required: true
+  vcluster_namespace:
+    description: 'Host namespace where the vCluster is running'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Setup host kubeconfig
+      shell: bash
+      run: |
+        echo "${{ inputs.kubeconfig_base64 }}" | base64 -d > ${{ github.workspace }}/.kubeconfig
+        chmod 600 ${{ github.workspace }}/.kubeconfig
+        echo "KUBECONFIG=${{ github.workspace }}/.kubeconfig" >> $GITHUB_ENV
+
+    - name: Install vCluster CLI
+      uses: ./.github/actions/install-vcluster-cli
+
+    - name: Delete vCluster
+      shell: bash
+      env:
+        VCLUSTER_NAME: ${{ inputs.vcluster_name }}
+        NAMESPACE: ${{ inputs.vcluster_namespace }}
+      run: |
+        echo "::group::Delete vCluster ${VCLUSTER_NAME}"
+        vcluster delete ${VCLUSTER_NAME} --namespace ${NAMESPACE} || true
+        echo "::endgroup::"
+
+    - name: Delete host namespace
+      shell: bash
+      env:
+        NAMESPACE: ${{ inputs.vcluster_namespace }}
+      run: |
+        echo "::group::Delete namespace $NAMESPACE"
+        kubectl delete namespace ${NAMESPACE} --timeout=120s || true
+        echo "::endgroup::"

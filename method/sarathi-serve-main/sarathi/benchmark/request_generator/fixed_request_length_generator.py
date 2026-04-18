@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cd7653021119c8aad6b1bdf0784906f3a603a07d437ec36367b646b086c15c78
-size 370
+from typing import Tuple
+
+from sarathi.benchmark.request_generator.base_request_length_generator import (
+    BaseRequestLengthGenerator,
+)
+
+
+class FixedRequestLengthGenerator(BaseRequestLengthGenerator):
+
+    def get_next_num_tokens(self) -> Tuple[float, float]:
+        return (
+            self.config.prefill_tokens,
+            self.config.decode_tokens,
+        )

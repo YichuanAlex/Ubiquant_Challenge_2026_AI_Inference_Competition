@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ef543f9767cd92ea0d82a2f4a3a3a7e56a9945e6a6f23c8372ecc668878264a7
-size 631
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Import connector classes to make them available at the expected paths for vLLM
+from .connector.dynamo_connector import DynamoConnector, DynamoConnectorMetadata
+from .connector.pd_connector import PdConnector, PdConnectorMetadata
+
+# Create module-level alias for backward compatibility
+dynamo_connector = DynamoConnector
+pd_connector = PdConnector
+
+__all__ = [
+    "DynamoConnector",
+    "DynamoConnectorMetadata",
+    "dynamo_connector",
+    "PdConnector",
+    "PdConnectorMetadata",
+]

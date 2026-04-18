@@ -1,3 +1,41 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b5ea0ea58d306995322ffd250395aa9b386f1c5675d01c2c2b38e38c8ff4191c
-size 1317
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+mod accessor;
+mod instance;
+mod onboarding;
+#[doc = include_str!("../../docs/session.md")]
+pub mod session;
+mod state;
+mod types;
+pub mod velo;
+
+pub use accessor::{BlockAccessor, PolicyContext, TieredBlock};
+pub use instance::InstanceLeader;
+pub use onboarding::*;
+pub use session::{
+    ControllableSessionOptions, ControllableSessionResult, InitiatorSession, ResponderSession,
+    ServerSession, ServerSessionHandle, ServerSessionOptions, SessionId,
+};
+pub use state::{LeaderState, RemoteLeaderInfo, route_local_to_remote};
+pub use types::*;
+pub use velo::VeloLeaderService;
+
+use anyhow::Result;
+
+use crate::SequenceHash;
+
+/// Leader trait for distributed block onboarding operations.
+pub trait Leader: Send + Sync {
+    /// Find matching blocks with default options.
+    fn find_matches(&self, sequence_hashes: &[SequenceHash]) -> Result<FindMatchesResult> {
+        self.find_matches_with_options(sequence_hashes, FindMatchesOptions::default())
+    }
+
+    /// Find matching blocks with custom options.
+    fn find_matches_with_options(
+        &self,
+        sequence_hashes: &[SequenceHash],
+        options: FindMatchesOptions,
+    ) -> Result<FindMatchesResult>;
+}

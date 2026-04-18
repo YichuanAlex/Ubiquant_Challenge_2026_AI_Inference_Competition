@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e083b0f5af38c5e8d604e67d45bf1088f9e5c3398d8ec623e2d94ea4a520aa69
-size 399
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! vLLM scheduler simulation around a unified waiting/running request model.
+//!
+//! Reference: vllm/vllm/v1/core/sched/scheduler.py
+
+mod core;
+mod live;
+
+pub(crate) use core::VllmCore;
+pub use live::{MockerMetrics, Scheduler};
+
+#[cfg(test)]
+mod tests;

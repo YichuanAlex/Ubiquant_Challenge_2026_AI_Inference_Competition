@@ -1,3 +1,19 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:398968c511a4c901ba521fecc2a538515c80e880089fd9f78a1ba88266b94061
-size 441
+linters:
+  disable:
+    - unused
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      # HTTP response writing - errors indicate client disconnect, not actionable
+      - (net/http.ResponseWriter).Write
+      - (*encoding/json.Encoder).Encode
+      - io.Copy
+      - io.ReadAll
+
+issues:
+  exclude-rules:
+    # Test files: unchecked errors are acceptable in test setup/assertions
+    - path: _test\.go
+      linters:
+        - errcheck

@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9401770a0dd17ce12fef9e05f7e935d5831970332e7f6ab7a61086654cffe692
-size 150
+---
+source: dynamo.llm/tests/openai_completions.rs
+expression: request
+---
+{
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?"
+}

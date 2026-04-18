@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a92e95a21db6356a2f9aa179dd0368d118d193167b5c953a1dcf4d6549043440
-size 362
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Shared components used across all engine implementations.
+
+pub mod bootstrap;
+pub mod evictor;
+pub mod kv_cache_trace;
+pub mod perf_model;
+pub mod protocols;
+pub mod running_mean;
+pub mod sequence;
+pub mod utils;

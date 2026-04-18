@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5e96399522777137f500260e1945f523853db6c654b9f1f6cd066023d1735c28
-size 220
+---
+source: tests/openai_completions.rs
+description: "should have prompt, model, and echo fields"
+expression: sample.request
+---
+{
+  "echo": true,
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?"
+}

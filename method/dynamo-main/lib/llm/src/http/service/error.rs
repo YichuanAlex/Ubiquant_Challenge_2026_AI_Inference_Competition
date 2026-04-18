@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:589d734ebfe4af14c7f034f0637e30bca195d853d7c8e1ee453ed6bb1f957098
-size 483
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use thiserror::Error;
+
+/// Implementation of the Completion Engines served by the HTTP service should
+/// map their custom errors to to this error type if they wish to return error
+/// codes besides 500.
+#[derive(Debug, Error)]
+#[error("HTTP Error {code}: {message}")]
+pub struct HttpError {
+    pub code: u16,
+    pub message: String,
+}

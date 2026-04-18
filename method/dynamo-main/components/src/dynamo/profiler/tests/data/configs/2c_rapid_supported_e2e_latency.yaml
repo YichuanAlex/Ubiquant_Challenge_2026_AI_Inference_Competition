@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c445a79ab5869287a6e31eb5ac4770cd8b99e528c76b17c8a93729c0ffafcd1d
-size 473
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Case 2c: AIC supported model, rapid, without planner, e2eLatency instead of ttft/itl
+model: "Qwen/Qwen3-32B"
+backend: trtllm
+image: "nvcr.io/nvidia/ai-dynamo/dynamo-frontend:latest"
+hardware:
+  gpuSku: h200_sxm
+  totalGpus: 64
+  numGpusPerNode: 8
+workload:
+  requestRate: 5.0
+sla:
+  ttft: null
+  itl: null
+  e2eLatency: 35000.0

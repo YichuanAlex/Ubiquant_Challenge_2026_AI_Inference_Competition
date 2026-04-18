@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4532fddc665d5373cb6a4653b0563c13e169afcfe166003975bbaab4ac585d84
-size 409
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use anyhow::Result;
+
+use dynamo_runtime::{Runtime, worker::Worker};
+
+async fn hello_world(_runtime: Runtime) -> Result<()> {
+    Ok(())
+}
+
+#[test]
+fn test_lifecycle() {
+    let worker = Worker::from_settings().unwrap();
+    worker.execute(hello_world).unwrap();
+}

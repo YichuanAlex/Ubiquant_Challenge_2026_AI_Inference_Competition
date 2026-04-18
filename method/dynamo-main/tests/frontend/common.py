@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f46d6e95e8386b7006e13d14f241d0f9503b1fbbd7ef62f4ecc8bb1b12965b97
-size 462
+#  SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#  SPDX-License-Identifier: Apache-2.0
+
+import importlib
+import importlib.util
+
+
+def check_module_available(module_name: str) -> bool:
+    """For tests / pre-commit"""
+    if importlib.util.find_spec(module_name) is None:
+        return False
+    try:
+        importlib.import_module(module_name)
+        return True
+    except ImportError:
+        return False

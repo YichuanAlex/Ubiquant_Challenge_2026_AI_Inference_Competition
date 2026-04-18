@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ad681290f9443ebae89272a5e094b777c71c47ebbe3ad3146988afff70eff1b2
-size 417
+from abc import ABC
+from dataclasses import dataclass
+from typing import Any
+
+from sarathi.config.utils import get_all_subclasses
+
+
+@dataclass
+class BasePolyConfig(ABC):
+
+    @classmethod
+    def create_from_type(cls, type_: Any) -> Any:
+        for subclass in get_all_subclasses(cls):
+            if subclass.get_type() == type_:
+                return subclass()
+        raise ValueError(f"Invalid type: {type_}")

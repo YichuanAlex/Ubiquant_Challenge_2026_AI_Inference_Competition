@@ -1,3 +1,14 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:411acaf05f600ce78895d1efe9cb7e416f012fa694dce2b573a1ba007ef674a4
-size 361
+from abc import ABC, abstractmethod
+from typing import Tuple
+
+from sarathi.benchmark.config import BaseRequestLengthGeneratorConfig
+
+
+class BaseRequestLengthGenerator(ABC):
+
+    def __init__(self, config: BaseRequestLengthGeneratorConfig):
+        self.config = config
+
+    @abstractmethod
+    def get_next_num_tokens(self) -> Tuple[float, float]:
+        pass

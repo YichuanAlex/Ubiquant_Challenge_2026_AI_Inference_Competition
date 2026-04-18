@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fd06f840ca64790da80258804cc775d0fc6a40c86e5245bbcfc4db6b44ac968d
-size 322
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./bin/gateway /usr/local/bin/gateway
+
+COPY ./lib/sglang/sgl-model-gateway/bindings/golang/target/release/*.a /usr/lib
+
+WORKDIR /gateway

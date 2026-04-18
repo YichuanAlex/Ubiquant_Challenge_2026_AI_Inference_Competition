@@ -1,3 +1,12 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7b43fa07af54760dab1c9e046e378da72663e8eb5d3533ef70dfeb9a0e36823f
-size 442
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Engine modules for TensorRT-LLM backend.
+
+This module provides engine wrappers for various generative models:
+- DiffusionEngine: Generic wrapper for TensorRT-LLM visual_gen diffusion pipelines
+"""
+
+from dynamo.trtllm.engines.diffusion_engine import DiffusionEngine
+
+__all__ = ["DiffusionEngine"]

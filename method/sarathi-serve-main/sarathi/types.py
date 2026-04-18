@@ -1,3 +1,39 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:eda6693be34173645813ff88693d01f0c9665f8ec9d3ddb614bcf220310f9095
-size 884
+from dataclasses import dataclass
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
+GPULocation = Tuple[Optional[str], int]  # (node_ip, gpu_id)
+ResourceMapping = List[GPULocation]
+ReplicaResourceMapping = List[ResourceMapping]  # List ResourceMapping for each replica
+
+
+class SchedulerType(Enum):
+    VLLM = "VLLM"
+    ORCA = "ORCA"
+    FASTER_TRANSFORMER = "FASTER_TRANSFORMER"
+    SARATHI = "SARATHI"
+    SIMPLE_CHUNKING = "SIMPLE_CHUNKING"
+
+
+class RequestGeneratorType(Enum):
+    SYNTHETIC = "SYNTHETIC"
+    TRACE = "TRACE"
+
+
+class RequestIntervalGeneratorType(Enum):
+    POISSON = "POISSON"
+    GAMMA = "GAMMA"
+    STATIC = "STATIC"
+    TRACE = "TRACE"
+
+
+class RequestLengthGeneratorType(Enum):
+    UNIFORM = "UNIFORM"
+    ZIPF = "ZIPF"
+    TRACE = "TRACE"
+    FIXED = "FIXED"
+
+
+class AttentionBackend(Enum):
+    FLASHINFER = "FLASHINFER"
+    NO_OP = "NO_OP"

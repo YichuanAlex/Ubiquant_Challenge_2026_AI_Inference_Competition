@@ -1,3 +1,30 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ee97c177dbcdec97785f03925850b9cbf033d35aacdcbb73ff7864a5ef95a92c
-size 964
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+dynamo-operator:
+  namespaceRestriction:
+    enabled: true
+  controllerManager:
+    tolerations:
+      - { key: dedicated, operator: Equal, value: user-workload, effect: NoSchedule }
+      - { key: dedicated, operator: Equal, value: user-workload, effect: NoExecute }
+
+etcd:
+  persistence:
+    storageClass: ebs
+  tolerations:
+    - { key: dedicated, operator: Equal, value: user-workload, effect: NoSchedule }
+    - { key: dedicated, operator: Equal, value: user-workload, effect: NoExecute }
+
+nats:
+  config:
+    jetstream:
+      fileStore:
+        pvc:
+          storageClassName: ebs
+  podTemplate:
+    merge:
+      spec:
+        tolerations:
+          - { key: dedicated, operator: Equal, value: user-workload, effect: NoSchedule }
+          - { key: dedicated, operator: Equal, value: user-workload, effect: NoExecute }

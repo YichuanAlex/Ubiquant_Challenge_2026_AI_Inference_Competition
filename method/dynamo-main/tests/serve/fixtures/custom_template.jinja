@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:10f6b18e2d27108732481334c7657355fcdfe2d61818f1757c84bb1ed794e6fa
-size 313
+{%- for message in messages %}
+{%- if message['role'] == 'system' %}
+<|system|>{{ message['content'] }}
+{%- elif message['role'] == 'user' %}
+CUSTOM_TEMPLATE_ACTIVE| {{ message['content'] }}
+{%- elif message['role'] == 'assistant' %}
+<|assistant|>{{ message['content'] }}
+{%- endif %}
+{%- endfor %}
+<|assistant|>

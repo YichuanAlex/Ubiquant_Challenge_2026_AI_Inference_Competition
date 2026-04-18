@@ -1,3 +1,18 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:44bf0066d5bc3ef16c3cdf17a91fdc60d3fd02ecb98a391ece0f2c335eadf4d2
-size 440
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+mod demux;
+mod entrypoints;
+mod live_runtime;
+mod router;
+mod state;
+mod task;
+
+#[cfg(test)]
+mod tests;
+
+pub(crate) use entrypoints::{
+    simulate_concurrency_requests, simulate_concurrency_workload, simulate_trace_requests,
+    simulate_trace_workload,
+};
+pub(crate) use router::ReplayRouter;

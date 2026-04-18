@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:7e5ca6688f70530c0358d2acf569cff004bce8ab6faf46f7d6c4c14278cddb7a
-size 720
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+from sarathi.core.datatypes.scheduler_output import SchedulerOutputs
+from sarathi.core.datatypes.sequence import SamplerOutputs, Sequence
+
+
+@dataclass
+class StepInputs:
+    """Input data for a single step of the model.
+
+    Attributes:
+        scheduler_outputs: The outputs from the scheduler for this step.
+        new_seqs: A list of new sequences to add to the engine
+        pending_step_outputs: A list of tuples of scheduler outputs and sampler outputs
+    """
+
+    scheduler_outputs: SchedulerOutputs
+    new_seqs: Optional[List[Sequence]] = None
+    pending_step_outputs: Optional[List[Tuple[SchedulerOutputs, SamplerOutputs]]] = None

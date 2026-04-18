@@ -1,3 +1,15 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c2d5924aba886064c42fb59f0de2db253b66124530a1569cc301eed8852f17a6
-size 441
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+mod driver;
+mod trace;
+mod types;
+
+pub use driver::WorkloadDriver;
+pub use types::{
+    ArrivalSpec, DelaySpec, LengthSpec, ReadyTurn, ReplayRequestHashes, RouterSequence,
+    SequenceHashMode, SessionPartitionSpec, SessionTrace, SyntheticTraceSpec, Trace, TurnTrace,
+};
+
+#[cfg(test)]
+mod tests;

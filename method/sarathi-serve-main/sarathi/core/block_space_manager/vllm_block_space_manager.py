@@ -1,3 +1,13 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:34b7f9e2474be259d114bbc5e3589238a8d3de1237f3bd7870d32eac144aface
-size 398
+from sarathi.core.block_space_manager.base_block_space_manager import (
+    BaseBlockSpaceManager,
+)
+from sarathi.core.datatypes.sequence import Sequence
+
+
+class VLLMBlockSpaceManager(BaseBlockSpaceManager):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_num_initial_blocks(self, seq: Sequence) -> int:
+        return len(seq.logical_token_blocks)

@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:f7923b39c6dd1e1f4e757f6e3f54b534c8fa9465f914b2548450a9d52fa413ff
-size 630
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+from sarathi.entrypoints.config import APIServerConfig
+
+
+@dataclass
+class OpenAIServerConfig(APIServerConfig):
+    api_key: Optional[str] = field(
+        default=None, metadata={"help": "API key for authentication with the server."}
+    )
+    chat_template: Optional[str] = field(
+        default=None, metadata={"help": "Template for formatting chat messages."}
+    )
+    response_role: str = field(
+        default="assistant",
+        metadata={
+            "help": "Role to be assigned to the model's responses in the chat format."
+        },
+    )

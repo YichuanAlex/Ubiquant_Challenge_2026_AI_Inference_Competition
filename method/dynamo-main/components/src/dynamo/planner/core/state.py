@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:1fc28854b1f2dfdd24abd578188fba87ee6ca6aebacf3985919e2e0b51bc0ed0
-size 730
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from dataclasses import dataclass, field
+
+from dynamo.planner.monitoring.traffic_metrics import Metrics
+
+
+@dataclass
+class PlannerSharedState:
+    last_metrics: Metrics = field(default_factory=Metrics)
+    num_p_workers: int = 0
+    num_d_workers: int = 0
+    cumulative_gpu_hours: float = 0.0
+    last_adjustment_time: float = 0.0
+    # Lower bounds from throughput-based scaling (used when both modes enabled)
+    throughput_lower_bound_p: int = 1
+    throughput_lower_bound_d: int = 1
+    # Separate timestamp for load-based adjustment loop
+    last_load_adjustment_time: float = 0.0

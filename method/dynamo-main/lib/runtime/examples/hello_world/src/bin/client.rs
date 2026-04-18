@@ -1,3 +1,38 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4203c466ebda2f87eba93363ca4b4a1902c0310e8625dd79f814ad48e7f3630c
-size 1120
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use dynamo_runtime::{
+    DistributedRuntime, Runtime, Worker, logging, pipeline::PushRouter,
+    protocols::annotated::Annotated, stream::StreamExt,
+};
+use hello_world::DEFAULT_NAMESPACE;
+
+fn main() -> anyhow::Result<()> {
+    logging::init();
+    let worker = Worker::from_settings()?;
+    worker.execute(app)
+}
+
+async fn app(runtime: Runtime) -> anyhow::Result<()> {
+    let distributed = DistributedRuntime::from_settings(runtime.clone()).await?;
+
+    let client = distributed
+        .namespace(DEFAULT_NAMESPACE)?
+        .component("backend")?
+        .endpoint("generate")
+        .client()
+        .await?;
+    client.wait_for_instances().await?;
+    let router =
+        PushRouter::<String, Annotated<String>>::from_client(client, Default::default()).await?;
+
+    let mut stream = router.random("hello world".to_string().into()).await?;
+
+    while let Some(resp) = stream.next().await {
+        println!("{:?}", resp);
+    }
+
+    runtime.shutdown();
+
+    Ok(())
+}

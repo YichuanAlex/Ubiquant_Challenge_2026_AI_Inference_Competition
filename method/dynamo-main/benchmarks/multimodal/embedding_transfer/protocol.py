@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:83ee80c29637308196f0dfb3469fab10778a64f9b54383681851647a7342cd45
-size 789
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from pydantic import BaseModel
+
+from dynamo.common.constants import EmbeddingTransferMode
+from dynamo.common.multimodal.embedding_transfer import TransferRequest
+
+
+class TransferConfig(BaseModel):
+    use_gpu: bool = False
+    tensor_count_per_request: int = 30
+    # EmbeddingTransferMode.LOCAL: use local file implementation
+    # EmbeddingTransferMode.NIXL_WRITE: use NIXL writer as initiator (direct NIXL API calls)
+    # EmbeddingTransferMode.NIXL_READ: use NIXL reader as initiator (nixl_connect)
+    transfer_type: EmbeddingTransferMode = EmbeddingTransferMode.LOCAL
+
+
+class BatchTransferRequest(BaseModel):
+    requests: list[TransferRequest]

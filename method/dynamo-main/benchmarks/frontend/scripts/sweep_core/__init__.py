@@ -1,3 +1,25 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:31ad417e84dd723c541f2d8b76448f46cc96a4976ef42782315c70069fbef2f2
-size 556
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""sweep_core -- pure-logic library for frontend performance sweeps."""
+
+from sweep_core.models import (
+    AiperfDimension,
+    DeployDimension,
+    DeployKey,
+    IsolationPolicy,
+    RunResult,
+    RunSpec,
+    SweepConfig,
+    SweepPlan,
+)
+
+__all__ = [
+    "AiperfDimension",
+    "DeployDimension",
+    "DeployKey",
+    "IsolationPolicy",
+    "RunResult",
+    "RunSpec",
+    "SweepConfig",
+    "SweepPlan",
+]

@@ -1,3 +1,101 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:78f2648f6e15c6fcefc91c8eff5882a2c7b92a8f1423b586815a400a4d97df0f
-size 2354
+apiVersion: v1
+kind: Service
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+    role: scheduler
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8088
+      targetPort: 8088
+      protocol: TCP
+      name: http
+  selector:
+    app: scheduler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+  labels:
+    app: scheduler
+    role: scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+        role: scheduler
+    spec:
+      terminationGracePeriodSeconds: 300
+      containers:
+      - name: scheduler
+        image: ${REPOSITORY}/scheduler:${SCHEDULER_IMAGE_TAG}
+        imagePullPolicy: Always
+        command: ["/usr/local/bin/scheduler"]
+        args:
+        - "--port"
+        - "8088"
+        - "-v"
+        - "4"
+        - "--host"
+        - "0.0.0.0"
+        - "--llm-backend-discovery"
+        - "redis"
+        - "--discovery-redis-host"
+        - "redis"
+        - "--discovery-redis-port"
+        - "6379"
+        - "--discovery-redis-status-ttl-ms"
+        - "60000"
+        - "--scheduling-policy"
+        - "load-balance"
+        - "--cms-redis-host"
+        - "redis"
+        - "--cms-redis-port"
+        - "6379"
+        - "--cms-pull-status-interval-ms"
+        - "500"
+        - "--cms-pull-metadata-interval-ms"
+        - "10000"
+        - "--enable-full-mode-scheduling=true"
+        # cache-aware-scheduling args
+        - "--enable-cache-aware-scheduling=true"
+        - "--kvs-backend"
+        - "mooncake"
+        - "--kvs-chunk-size"
+        - "256"
+        - "--kvs-enable-save-unfull-chunk=false"
+        - "--kvs-metadata-service-http-server-host"
+        - "mooncake-master-service"
+        - "--kvs-metadata-service-http-server-port"
+        - "9003"
+        ports:
+        - containerPort: 8088
+          name: http
+          protocol: TCP
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8088
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8088
+          initialDelaySeconds: 5
+          periodSeconds: 5

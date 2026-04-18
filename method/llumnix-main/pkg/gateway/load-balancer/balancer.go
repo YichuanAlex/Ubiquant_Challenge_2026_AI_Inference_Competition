@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:31d2b4c9ea35fc4910179a8c46899c8c95e0ba21b610a60a261198f8dd598fca
-size 316
+package balancer
+
+import (
+	"llumnix/cmd/gateway/app/options"
+	"llumnix/pkg/types"
+)
+
+type Balancer interface {
+	Get(*types.RequestContext) (types.SchedulingResult, error)
+
+	Release(*types.RequestContext, *types.LLMInstance)
+}
+
+func NewBalancer(c *options.GatewayConfig) Balancer {
+	return NewCompositeBalancer(c)
+}

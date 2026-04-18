@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4e488ff1629abc7781302a40a22c2aa04ab895c92e4b1010ae91c10938de8b93
-size 353
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+mod external;
+mod logical;
+
+#[cfg(test)]
+mod tests;
+
+pub use external::{ExternalBlockAssignments, zip_assigned, zip_assigned_pending};
+pub use logical::{LogicalBlockAssignmentError, LogicalBlockAssignments};

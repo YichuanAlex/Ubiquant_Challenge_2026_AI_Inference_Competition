@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2410c363cb43d38f3d2c6c32ae381ab1c9e5df8002f4b1e4d818aab6d6ba2dd2
-size 477
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TorchDevice {
+    Cuda(usize),
+    Other(String),
+}
+
+pub trait TorchTensor: std::fmt::Debug + Send + Sync {
+    fn device(&self) -> TorchDevice;
+    fn data_ptr(&self) -> u64;
+    fn size_bytes(&self) -> usize;
+    fn shape(&self) -> Vec<usize>;
+    fn stride(&self) -> Vec<usize>;
+}

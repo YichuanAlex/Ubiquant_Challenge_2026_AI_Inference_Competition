@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:6b77f54b1a1ca36ca63e76e35197d604d9d43165f8a0a35fd3cf7114286a382e
-size 759
+data: {"id":"chat-06857e1c859247c38a73fdb559b8dfdb","object":"chat.completion.chunk","created":1728365454,"model":"meta/llama-3.1-8b-instruct","choices":[{"index":0,"delta":{"role":"assistant","content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chat-06857e1c859247c38a73fdb559b8dfdb","object":"chat.completion.chunk","created":1728365454,"model":"meta/llama-3.1-8b-instruct","choices":[{"index":0,"delta":{"role":null,"content":"Deep"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chat-06857e1c859247c38a73fdb559b8dfdb","object":"chat.completion.chunk","created":1728365454,"model":"meta/llama-3.1-8b-instruct","choices":[{"index":0,"delta":{"role":null,"content":" learning"},"logprobs":null,"finish_reason":null}]}
+
+data: [DATA]
+

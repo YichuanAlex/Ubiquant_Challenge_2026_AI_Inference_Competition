@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:4e4d9b6e4a26c91e299c97b6da7666422b8ed987ddd4ccf154c0461b57396f75
-size 730
+#include <torch/extension.h>
+
+void topk_softmax(
+    torch::Tensor& topk_weights, 
+    torch::Tensor& topk_indices,
+    torch::Tensor& token_expert_indices,
+    torch::Tensor& gating_output
+);
+
+void moe_align_block_size(
+    torch::Tensor topk_ids, 
+    int64_t num_experts,
+    int64_t block_size, 
+    torch::Tensor sorted_token_ids,
+    torch::Tensor experts_ids,
+    torch::Tensor num_tokens_post_pad
+);
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def(
+    "topk_softmax",
+    &topk_softmax,
+    "Apply topk softmax to the gating outputs.");
+  m.def(
+    "moe_align_block_size",
+    &moe_align_block_size,
+    "Aligning the number of tokens to be processed by each expert such that it is divisible by the block size.");
+}

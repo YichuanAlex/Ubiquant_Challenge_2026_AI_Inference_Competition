@@ -1,3 +1,4 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:fcfd890dcf4c065c6cbb21be9b8f907f4d5d14439ca1c9ed524f26c8b3ca7ee4
-size 104
+[submodule "lib/sglang"]
+	path = lib/sglang
+	url = https://github.com/sgl-project/sglang
+	branch = main

@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:47aee4395afcfeb8b488406edadfb4256073842c08ab15df3bca1599d0b331bd
-size 244
+---
+source: dynamo.llm/tests/openai_completions.rs
+description: "should have prompt, model, and temperature fields"
+expression: sample.request
+---
+{
+  "model": "gpt-3.5-turbo",
+  "prompt": "What is the meaning of life?",
+  "temperature": 0.0
+}

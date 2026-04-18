@@ -1,3 +1,6 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:8fea29c6dbc025abbc253f14e34cd2d1fd7df757235d7d31cb93db427a1439ca
-size 326
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+pub use super::MemoryDescriptor;
+pub use super::nixl::{NixlCompatible, NixlMemory, NixlRegisterExt, RegisteredView};
+pub use super::tensor::{TensorDescriptor, TensorDescriptorExt};

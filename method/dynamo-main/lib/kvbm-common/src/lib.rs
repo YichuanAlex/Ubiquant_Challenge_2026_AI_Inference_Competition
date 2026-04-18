@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:014e770e6990eabaa840adf63dfb6ae9b0a6d778db127b4d9609348aabca7798
-size 1083
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use serde::{Deserialize, Serialize};
+
+pub type BlockId = usize;
+pub type SequenceHash = dynamo_tokens::PositionalLineageHash;
+
+pub use dynamo_tokens as tokens;
+
+/// Logical layout handle type encoding the layout ID.
+///
+/// KVBM manages G1, G2 and G3 layouts directly. G4 is managed by an external service.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LogicalLayoutHandle {
+    /// Representation of GPU / Device Memory
+    /// G1 is fixed sized and managed by either the framework or the local instance of KVBM.
+    G1,
+    /// Representation of CPU / Host Memory
+    /// G2 is fixed sized and managed by the local instance of KVBM.
+    G2,
+    /// Representation of Disk Storage (Local or AttachedStorage)
+    /// G3 is fixed sized and managed by the local instance of KVBM.
+    G3,
+    /// Representation of Blocks held in an external service
+    /// outside the control of the KVBM system.
+    G4,
+}

@@ -1,3 +1,9 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:cb1771208d07e13d084e65f7ba9f13d54c50efefff65d08d854d59b0de20a18d
-size 289
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Type stubs - re-export from _core
+from dynamo._core import ModelDeploymentCard as ModelDeploymentCard
+
+__all__ = [
+    "ModelDeploymentCard",
+]

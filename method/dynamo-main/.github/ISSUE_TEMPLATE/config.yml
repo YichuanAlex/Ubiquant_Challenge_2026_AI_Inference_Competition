@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:e681bd40aac295b40f7b812ab01786af92edc46bd6b3968a0f7a37f04921d062
-size 339
+blank_issues_enabled: false
+contact_links:
+  - name: Dynamo documentation
+    url: https://www.nvidia.com/en-us/ai/dynamo/
+    about: Refer to the Dynamo documentation to help you get started.
+  - name: Dynamo Community Support
+    url: https://discord.gg/nvidia-dynamo
+    about: Refer to the Dynamo Discord server for community support.

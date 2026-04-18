@@ -1,3 +1,8 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:d4da629eeb73d2caf37a8a0dde791020d903872ff2244138c57a63353ae06bdc
-size 457
+<!-- SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0 -->
+
+# Inference Gateway (GAIE)
+
+Integrate Dynamo with the Gateway API Inference Extension for intelligent KV-aware request routing at the gateway layer.
+
+See [Inference Gateway documentation](../../docs/kubernetes/inference-gateway.md) for full setup instructions, configuration options, and deployment examples.

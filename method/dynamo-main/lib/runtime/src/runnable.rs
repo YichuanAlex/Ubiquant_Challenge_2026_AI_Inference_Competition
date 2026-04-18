@@ -1,3 +1,26 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b0c8d2ea7474a9014b8a9bdf87174e2c9974e7be0bedecf5dbde0ddb8d75f495
-size 676
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+//! Runnable Module.
+//!
+//! This module provides a way to run a task in a runtime.
+//!
+
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+pub use anyhow::{Error, Result};
+pub use async_trait::async_trait;
+pub use tokio::task::JoinHandle;
+pub use tokio_util::sync::CancellationToken;
+
+#[async_trait]
+pub trait ExecutionHandle {
+    fn is_finished(&self) -> bool;
+    fn is_cancelled(&self) -> bool;
+    fn cancel(&self);
+    fn cancellation_token(&self) -> CancellationToken;
+    fn handle(self) -> JoinHandle<Result<()>>;
+}
