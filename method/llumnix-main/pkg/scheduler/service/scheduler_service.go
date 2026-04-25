@@ -1,0 +1,317 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"k8s.io/klog/v2"
+
+	"llumnix/cmd/scheduler/app/options"
+	"llumnix/pkg/consts"
+	"llumnix/pkg/keepalive"
+	"llumnix/pkg/lrs"
+	"llumnix/pkg/metrics"
+	"llumnix/pkg/resolver"
+	"llumnix/pkg/scheduler/policy"
+	"llumnix/pkg/types"
+)
+
+type SchedulerService struct {
+	config *options.SchedulerConfig
+
+	schedulingPolicy   policy.SchedulingPolicy
+	reschedulingPolicy policy.ReschedulingInterface
+
+	resolver  resolver.LLMResolver
+	addChan   <-chan types.LLMInstanceSlice
+	delChan   <-chan types.LLMInstanceSlice
+	lrsClient *lrs.LocalRealtimeStateClient
+
+	// Prometheus metrics handler for /metrics endpoint
+	prometheusHandler *metrics.PrometheusHandler
+}
+
+func NewSchedulerService(c *options.SchedulerConfig) *SchedulerService {
+	lrsClient := lrs.NewLocalRealtimeStateClient(c)
+
+	ss := &SchedulerService{
+		config:            c,
+		lrsClient:         lrsClient,
+		schedulingPolicy:  policy.NewSchedulingPolicy(c.SchedulingPolicy, c, lrsClient),
+		prometheusHandler: metrics.NewPrometheusHandler(),
+	}
+
+	if c.ColocatedReschedulingMode {
+		ss.reschedulingPolicy = policy.NewReschedulingPolicy(c)
+	}
+
+	if ss.config.EnableRequestStateTracking() {
+		r := resolver.CreateBackendServiceResolver(&c.DiscoveryConfig, consts.InferTypeAll)
+		addChan, delChan, err := r.Watch(context.Background())
+		if err != nil {
+			klog.Errorf("failed to watch LLM instances: %v", err)
+			return nil
+		}
+		ss.addChan = addChan
+		ss.delChan = delChan
+		go func() {
+			for {
+				select {
+				case instances := <-ss.addChan:
+					for _, w := range instances {
+						// create realtime stats for this instance
+						klog.Infof("add backend service endpoint: %s/%s", w.InferType, w.String())
+						ss.lrsClient.AddInstance(&w)
+					}
+				case instances := <-ss.delChan:
+					for _, w := range instances {
+						klog.Infof("remove backend service endpoint: %s/%s", w.InferType, w.String())
+						ss.lrsClient.RemoveInstance(w.InferType, w.Id())
+					}
+				}
+			}
+		}()
+	}
+
+	return ss
+}
+
+// handleKeepalive do keepalive with gateway.
+// URL: /keepalive
+func (ss *SchedulerService) handleKeepalive(w http.ResponseWriter, r *http.Request) {
+	// upgrade WebSocket connection.
+	defaultUpgrader := websocket.Upgrader{}
+	conn, err := defaultUpgrader.Upgrade(w, r, http.Header{})
+	if err != nil {
+		klog.Warningf("handle keepalive: couldn't upgrade %s", err)
+		return
+	}
+	defer conn.Close()
+
+	kac := keepalive.NewKeepAliveServer(conn)
+	remoteEndpoint, err := kac.HandShake()
+	if err != nil {
+		klog.Warningf("handshake failed: %v", err)
+		return
+	}
+
+	if ss.config.EnableRequestStateTracking() {
+		// add gateway for local realtime state
+		ss.lrsClient.AddGateway(remoteEndpoint.String())
+	}
+
+	// block and do keepalive with gateway
+	kac.StartKeepAlive(func() {
+		if ss.config.EnableRequestStateTracking() {
+			// If the goroutine terminates, it indicates that an anomaly occurred with the connection, which could be due to a ping pong
+			// failure or an abnormal TCP disconnection. Ultimately, we need to reclaim the request states that are in use.
+			ss.lrsClient.RemoveGateway(remoteEndpoint.String())
+		}
+	})
+}
+
+// handleSchedule returns the instance of the backend service with the minimum load.
+// URL: /schedule
+func (ss *SchedulerService) handleSchedule(w http.ResponseWriter, r *http.Request) {
+	tStart := time.Now()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		klog.Errorf("io read err: %v", err)
+		return
+	}
+
+	var schReq types.SchedulingRequest
+	if err := json.Unmarshal(body, &schReq); err != nil {
+		klog.Warningf("invalid scheduling req: %s", body)
+		http.Error(w, "invalid scheduling req", http.StatusBadRequest)
+		return
+	}
+
+	var statusCode int
+	err = ss.schedulingPolicy.Schedule(&schReq)
+	if errors.Is(err, consts.ErrorEndpointNotFound) {
+		klog.Errorf("%vms| gateway(%s) request failed: no endpoint exits", time.Since(tStart).Milliseconds(), schReq.GatewayId)
+		statusCode = http.StatusNotFound
+	} else if err != nil {
+		if errors.Is(err, consts.ErrorNoAvailableEndpoint) {
+			statusCode = http.StatusTooManyRequests
+			klog.Errorf("%s %vms| gateway(%s) request failed: no available endpoint", schReq.Id, time.Since(tStart).Milliseconds(), schReq.GatewayId)
+		} else {
+			statusCode = http.StatusBadRequest
+			klog.Errorf("%s %vms| gateway(%s) request failed: %v", schReq.Id, time.Since(tStart).Milliseconds(), schReq.GatewayId, err)
+		}
+	} else if len(schReq.SchedulingResult) == 0 {
+		err = consts.ErrorNoAvailableEndpoint
+		statusCode = http.StatusTooManyRequests
+		klog.Errorf("%s %vms| gateway(%s) request failed: get endpoints empty", schReq.Id, time.Since(tStart).Milliseconds(), schReq.GatewayId)
+	}
+
+	if err != nil {
+		metrics.Counter("scheduler_scheduling_failed_total", metrics.Labels{{Name: "error_type", Value: classifySchedulingError(err)}}).Inc()
+		w.WriteHeader(statusCode)
+		w.Write([]byte(err.Error()))
+		if ss.config.EnableLogInput {
+			klog.Infof("[%s] status_code:%d,response_time:%vms,error:%s", schReq.Id, statusCode, time.Since(tStart).Milliseconds(), err.Error())
+		}
+		return
+	}
+
+	// Record successful scheduling
+	metrics.Counter("scheduler_scheduling_total", metrics.Labels{}).Inc()
+
+	// record realtime state for the scheduled instance
+	if ss.config.EnableRequestStateTracking() {
+		for _, instance := range schReq.SchedulingResult {
+			reqState := lrs.NewRequestState(schReq.Id, int64(schReq.PromptNumTokens), instance.Id(), schReq.GatewayId)
+			err := ss.lrsClient.AllocateRequestState(instance.InferType, reqState)
+			if err != nil {
+				klog.Errorf("Allocate %s request state failed: %v", instance.InferType, err)
+			}
+		}
+	}
+
+	retBytes, _ := json.Marshal(schReq)
+	w.Header().Set("content-type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(retBytes)
+	if ss.config.EnableLogInput {
+		klog.Infof("[%s] status_code:%d,response_time:%vms,scheduling results:%s", schReq.Id, http.StatusOK, time.Since(tStart).Milliseconds(), schReq.String())
+	}
+}
+
+// handleRelease accepts the request released by the gateway
+// URL: /release
+func (ss *SchedulerService) handleRelease(w http.ResponseWriter, r *http.Request) {
+	tStart := time.Now()
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		klog.Errorf("io read err: %v", err)
+		return
+	}
+
+	var schReq types.SchedulingRequest
+	if err := json.Unmarshal(body, &schReq); err != nil {
+		klog.Warningf("invalid release request: %s", body)
+		http.Error(w, "invalid release request", http.StatusBadRequest)
+		return
+	}
+
+	if len(schReq.SchedulingResult) == 0 {
+		klog.Warningf("ignore, release 0 request.")
+		http.Error(w, "ignore, release 0 request.", http.StatusBadRequest)
+		return
+	}
+
+	if ss.config.EnableRequestStateTracking() {
+		for _, instance := range schReq.SchedulingResult {
+			reqState := lrs.NewRequestState(schReq.Id, 0, instance.Id(), schReq.GatewayId)
+			ss.lrsClient.ReleaseRequestState(instance.InferType, reqState)
+		}
+	}
+
+	// Clean up CMS local accounts for the released request to avoid stale accounts
+	// lingering until timeout when request forwarding fails.
+	if ss.config.EnableFullModeScheduling {
+		ss.schedulingPolicy.ReleaseRequestLocalAccount(schReq.Id)
+	}
+
+	klog.V(3).Infof("%vms| do release request by %s: %v", time.Since(tStart).Milliseconds(), schReq.GatewayId, string(body))
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleReport accepts the request reported by the gateway
+// URL: /report
+func (ss *SchedulerService) handleReport(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		klog.Errorf("io read err: %v", err)
+		return
+	}
+
+	var reqDatas lrs.RequestReportDataArray
+	if err := json.Unmarshal(body, &reqDatas); err != nil {
+		klog.Warningf("invalid report request: %s", body)
+		http.Error(w, "invalid report request", http.StatusBadRequest)
+		return
+	}
+
+	for _, reqData := range reqDatas {
+		reqState := lrs.NewRequestState(reqData.Id, int64(reqData.NumTokens), reqData.InstanceId, reqData.GatewayId)
+		var err error
+		switch reqData.Kind {
+		case lrs.KindPrefillDone:
+			err = ss.lrsClient.MarkPrefillComplete(reqData.InferType, reqState)
+			if err != nil {
+				klog.Errorf("mark prefill complete failed: %v", err)
+			}
+		default:
+			// KindStateUpdate or default case
+			err = ss.lrsClient.UpdateRequestState(reqData.InferType, reqState)
+			if err != nil {
+				klog.Errorf("update request state failed: %v", err)
+			}
+		}
+	}
+}
+
+func (ss *SchedulerService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/schedule":
+		ss.handleSchedule(w, r)
+	case "/release":
+		ss.handleRelease(w, r)
+	case "/keepalive":
+		ss.handleKeepalive(w, r)
+	case "/report":
+		ss.handleReport(w, r)
+	case "/healthz":
+		w.WriteHeader(http.StatusOK)
+	case "/metrics":
+		ss.prometheusHandler.ServeHTTP(w, r)
+	default:
+		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}
+
+func (ss *SchedulerService) Start() error {
+	go func() {
+		address := fmt.Sprintf("%s:%d", ss.config.Host, ss.config.Port)
+		klog.Infof("http service start listen on %s", address)
+		klog.Fatal(http.ListenAndServe(address, ss))
+	}()
+
+	if ss.reschedulingPolicy != nil {
+		go ss.reschedulingPolicy.ReschedulingLoop()
+	}
+
+	return nil
+}
+
+// classifySchedulingError maps scheduling errors to stable label values
+// to avoid high-cardinality from dynamic error messages.
+func classifySchedulingError(err error) string {
+	switch {
+	case errors.Is(err, consts.ErrorEndpointNotFound):
+		return "endpoint_not_found"
+	case errors.Is(err, consts.ErrorNoAvailableEndpoint):
+		return "no_available_endpoint"
+	case errors.Is(err, consts.ErrorAllEndpointBusy):
+		return "all_endpoints_busy"
+	case errors.Is(err, consts.ErrorNoMatchInferType):
+		return "no_match_infer_type"
+	case errors.Is(err, consts.ErrorCmsNotAvailable):
+		return "cms_not_available"
+	case errors.Is(err, consts.ErrorSchedulerNotReady):
+		return "scheduler_not_ready"
+	default:
+		return "unknown"
+	}
+}

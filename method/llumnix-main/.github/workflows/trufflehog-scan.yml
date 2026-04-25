@@ -1,0 +1,23 @@
+name: TruffleHog Sensitive Data Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        fetch-depth: 0
+    - name: TruffleHog scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        extra_args: --results=verified,unknown

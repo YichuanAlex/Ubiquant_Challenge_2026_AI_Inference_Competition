@@ -1,0 +1,1 @@
+../../../../common/setup_minio.sh

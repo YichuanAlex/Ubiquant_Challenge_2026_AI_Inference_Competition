@@ -1,0 +1,11 @@
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl wget \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ./bin/scheduler /usr/local/bin/scheduler
+
+COPY ./lib/sglang/sgl-model-gateway/bindings/golang/target/release/*.a /usr/lib
+
+WORKDIR /scheduler

@@ -1,0 +1,468 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "ai-dynamo"
+version = "1.1.0"
+description = "Distributed Inference Framework"
+readme = "README.md"
+authors = [
+    { name = "NVIDIA Inc.", email = "sw-dl-dynamo@nvidia.com" },
+]
+license = { text = "Apache-2.0" }
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "ai-dynamo-runtime==1.1.0",
+    "transformers>=4.56.0",
+    "kubernetes>=32.0.1,<33.0.0",
+    "prometheus_client>=0.23.1,<1.0",
+    "msgspec>=0.19.0",
+    "pyzmq>=26.0.0",
+    "msgpack==1.1.2",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+]
+keywords = ["llm", "genai", "inference", "nvidia", "distributed", "dynamo"]
+
+[project.urls]
+Repository = "https://github.com/ai-dynamo/dynamo.git"
+
+[project.optional-dependencies]
+trtllm =[
+    "uvloop",
+    "tensorrt-llm==1.3.0rc11",
+]
+
+vllm = [
+    "uvloop",
+    "nixl[cu12]<=0.10.1",
+    "vllm[flashinfer,runai,otel]==0.19.0",
+    # vllm-omni is installed separately in container builds (see
+    # container/deps/vllm/install_vllm.sh). Do not add it to ai-dynamo[vllm]:
+    # pip/uv dependency resolution for omni can override the vLLM torch stack.
+    # "vllm-omni==...",
+    "blake3>=1.0.0,<2.0.0",
+    "soundfile>=0.13.1",
+    "librosa>=0.10.0",
+]
+
+sglang = [
+    "uvloop",
+    "sglang[diffusion]==0.5.10.post1",
+    "nixl[cu12]>=1.0.0,<1.1.0",
+    "cupy-cuda12x>=13.0.0",
+]
+
+mocker = [
+    "aiconfigurator>=0.7.0",
+]
+
+[project.entry-points.pytest11]
+vllm_tests = "dynamo.vllm.tests.conftest"
+trtllm_tests = "dynamo.trtllm.tests.conftest"
+sglang_tests = "dynamo.sglang.tests.conftest"
+
+[dependency-groups]
+docs = [
+    # Core Sphinx
+    "sphinx>=8.1",
+    "nvidia-sphinx-theme>=0.0.8",
+    # Sphinx extensions
+    "ablog>=0.11",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.6",
+    "sphinx-prompt>=1.9",
+    "sphinx-sitemap>=2.6",
+    "sphinx-tabs>=3.4",
+    "sphinx-book-theme>=1.1",
+    "sphinxcontrib-mermaid>=1.0",
+    "sphinxcontrib-bibtex>=2.6",
+    "sphinx-reredirects>=1.0.0",
+    # Markdown and notebook support
+    "myst-parser>=4.0",
+    "myst-nb>=1.2",
+    "nbsphinx>=0.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "components/src/dynamo",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.codespell]
+# note: pre-commit passes explicit lists of files here, which this skip file list doesn't override -
+# this is only to allow you to run codespell interactively
+# this also overrides the grpc_generated folder, since it is generated
+
+# Ignore data files and auto-generated files
+skip = "./.git,./.github,./lib/llm/tests/data,*.lock,*.sum"
+
+# ignore allowed words used in code
+ignore-words-list = "afterall,ser,ende"
+# use the 'clear' dictionary for unambiguous spelling mistakes
+builtin = "clear"
+# use custom dictionary in addition to the built-in one
+dictionary = "./codespell.txt"
+# disable warnings about binary files and wrong encoding
+quiet-level = 3
+
+[tool.isort]
+profile = "black"
+use_parentheses = true
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+ensure_newline_before_comments = true
+line_length = 88
+balanced_wrapping = true
+indent = "    "
+skip = ["build"]
+known_first_party = ["dynamo", "deploy"]
+# isort may confuse what is 1st or 3rd library. e.g.
+# when dynamo/vllm/omni/xx.py import vllm, local isort may treat this `vllm` as first
+# party heuristically. This causes local sort differs from GitHub sort and pre-commit
+# failure. To mitigate 1) one can install 3rd party lib so that isort is aware of it,
+# 2) hardcode 3rd party lib here, 3) add "# isort: skip_file" to problematic files
+# as the last resort.
+known_third_party = ["vllm", "tensorrt_llm", "sglang", "aiconfigurator"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+tmp_path_retention_policy = "failed"
+
+# NOTE
+# Keep these ignores in pytest collection to avoid duplicate-module collection
+# errors (for example, backend trees that include multiple model.py files).
+addopts = [
+    "-ra",
+    "--showlocals",
+    "--strict-markers",
+    "--strict-config",
+    "--ignore-glob=*model.py",
+    "--ignore-glob=*vllm_integration*",
+    "--ignore-glob=*trtllm_integration*",
+    "--ignore-glob=*kvbm/python/kvbm*",
+    "--ignore-glob=*_inc.py",
+    "--ignore-glob=*/llm/tensorrtllm*",
+    "--ignore-glob=docs/*",
+    "--ignore-glob=components/src/dynamo/sglang/request_handlers/*",
+    "--ignore-glob=components/src/dynamo/sglang/multimodal_utils/*",
+    "--ignore-glob=components/src/dynamo/vllm/multimodal_utils/*",
+    "--ignore-glob=examples/backends/sglang/slurm_jobs/*",
+    # FIXME: Get relative/generic blob paths to work here
+]
+xfail_strict = true
+log_cli_level = "INFO"
+filterwarnings = [
+    "error",
+    # CUDA deprecation warnings from tensorrt_llm
+    "ignore:.*cuda*:DeprecationWarning",
+    # cuda.cudart/cuda.nvrtc deprecated in favor of cuda.bindings.* (cuda-python >=13)
+    # Triggered by flashinfer 0.6.7+ during import of comm/mnnvl.py
+    "ignore:The cuda\\..*module is deprecated:FutureWarning",
+    # SGLang GGUF quantization emits UserWarning on non-CUDA platforms (arm64 CPU-only CI)
+    "ignore:Only CUDA.*support GGUF quantization:UserWarning",
+    # protobuf C extension warning
+    "ignore:.*PyType_Spec.*custom tp_new.*:DeprecationWarning",
+    # unclosed socket/event loop warnings
+    "ignore:.*unclosed.*socket.*:ResourceWarning",
+    "ignore:.*unclosed event loop.*:ResourceWarning",
+    # unraisable exception warnings
+    "ignore:.*Exception ignored in.*:pytest.PytestUnraisableExceptionWarning",
+    # pynvml deprecation, temporary until upstream migrates to nvidia-ml-py
+    "ignore:The pynvml package is deprecated.*:FutureWarning",
+    # Dynamo's own KV events deprecation warning
+    "ignore:Automatic KV events configuration is deprecated.*:FutureWarning",
+    # Python 3.12 SWIG extension warning from third-party tokenizer deps
+    "ignore:builtin type (SwigPyPacked|SwigPyObject|swigvarlink) has no __module__ attribute:DeprecationWarning",
+    # Pydantic V2 deprecation warnings from TRTLLM dependencies
+    "ignore:Support for class-based `config`.*:pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore:Using extra keyword arguments on `Field`.*:pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore:The `schema` method is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
+    # Pydantic field shadowing in tensorrt_llm.serve.openai_protocol.ResponseFormat
+    'ignore:Field name "schema" in "ResponseFormat" shadows an attribute in parent:UserWarning',
+    # pytest-benchmark automatically disables when xdist is active
+    "ignore:.*Benchmarks are automatically disabled.*:pytest_benchmark.logger.PytestBenchmarkWarning",
+    # torchao invalid escape sequences in docstrings at import time
+    "ignore:.*invalid escape sequence.*:SyntaxWarning",
+    # torchao import path changes (https://github.com/pytorch/ao/issues/2752)
+    "ignore:Importing.*torchao\\.dtypes.*:DeprecationWarning",
+    # Triton CPU fallback warning on CPU-only runners
+    "ignore:Triton is not supported on current platform.*:UserWarning",
+    # torch.jit.script_method deprecation from torch.utils.mkldnn
+    "ignore:.*torch\\.jit\\.script_method.*is deprecated.*:DeprecationWarning",
+    # torch.jit.script deprecation from modelopt.torch.quantization
+    "ignore:`torch.jit.script` is deprecated:DeprecationWarning",
+    # nvidia-modelopt warning about transformers version (transitive dep from TRT-LLM)
+    "ignore:transformers version .* is incompatible with nvidia-modelopt.*:UserWarning",
+    # SGLang quantization warnings on CPU-only runners
+    "ignore:Only CUDA, HIP and XPU support AWQ currently.*:UserWarning",
+    "ignore:Only CUDA support GGUF quantization currently.*:UserWarning",
+]
+
+
+# NOTE: Can also manually mark tests with @pytest.mark.asyncio
+asyncio_mode = "auto"
+markers = [
+    "pre_merge: marks tests to run before merging",
+    "post_merge: marks tests to run after merge",
+    "parallel: marks tests that can run in parallel with pytest-xdist",
+    "nightly: marks tests to run nightly",
+    "weekly: marks tests to run weekly",
+    "release: marks tests to run on release pipelines",
+    "gpu_0: marks tests that don't require GPU",
+    "gpu_1: marks tests to run on GPU",
+    "gpu_2: marks tests to run on 2GPUs",
+    "gpu_4: marks tests to run on 4GPUs",
+    "gpu_8: marks tests to run on 8GPUs",
+    "xpu_1: marks tests to run on XPU",
+    "xpu_2: marks tests to run on 2XPUs",
+    # These 5 (profiled_vram_gib and requested_*) are used for parallel pytest executions:
+    "profiled_vram_gib(N): actual peak VRAM observed by nvidia-smi during profiling. Used for --max-vram-gib filtering and scheduler budget tracking",
+    "requested_vllm_kv_cache_bytes(N): exact KV cache bytes for vLLM (skips memory profiling). Sets _PROFILE_PYTEST_KV_CACHE_BYTES. Most deterministic method for parallel execution",
+    "requested_sglang_kv_tokens(N): max KV cache tokens for SGLang parallel execution. Sets _OVERRIDE_SGLANG_MAX_TOTAL_TOKENS to cap --max-total-tokens and prevent over-allocation",
+    "requested_trtllm_kv_tokens(N): max KV cache tokens for TensorRT-LLM parallel execution. Sets _PROFILE_OVERRIDE_TRTLLM_MAX_TOTAL_TOKENS to cap KvCacheConfig.max_tokens via --override-engine-args",
+    "requested_trtllm_vram_gib(N): max VRAM in GiB for TensorRT-LLM parallel execution. Sets _PROFILE_OVERRIDE_TRTLLM_MAX_GPU_TOTAL_BYTES to cap KvCacheConfig.max_gpu_total_bytes via --override-engine-args. Use for non-text workloads (video/image diffusion)",
+    "e2e: marks tests as end-to-end tests",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "stress: marks tests as stress tests",
+    "performance: marks tests as performance tests",
+    "benchmark: marks tests as benchmark tests",
+    "none: marks tests that do not require a framework-specific runtime",
+    "vllm: marks tests as requiring vllm",
+    "trtllm: marks tests as requiring trtllm",
+    "sglang: marks tests as requiring sglang",
+    "lmcache: marks tests as requiring lmcache",
+    "multimodal: marks tests as multimodal (image/video) tests",
+    "slow: marks tests as known to be slow",
+    "h100: marks tests to run on H100",
+    "aiconfigurator: marks e2e tests that cover aiconfigurator functionality",
+    "router: marks tests for router component",
+    "planner: marks tests for planner component",
+    "kvbm: marks tests for KV behavior and model determinism",
+    "kvbm_concurrency: marks concurrency stress tests for KVBM (runs separately)",
+    "model: model id used by a test or parameter",
+    "custom_build: marks tests that require custom builds or special setup (e.g., MoE models)",
+    "k8s: marks tests as requiring Kubernetes",
+    "fault_tolerance: marks tests as fault tolerance tests",
+    "deploy: marks tests as deployment tests",
+    "framework_only: marks standard framework deployment tests (vllm, sglang, trtllm)",
+    "framework_with_gaie: marks tests for GAIE (Gateway API Inference Extension) deployment",
+    # Built-in markers
+    "skip: skip this test",
+    "skipif: skip if condition is true",
+    "xfail: expected failure",
+    "usefixtures: use fixtures",
+    "parametrize: parameterized test",
+    "filterwarnings: filter warnings",
+    "asyncio: asyncio test marker",
+    # Third-party plugin markers
+    "timeout: test timeout in seconds (pytest-timeout plugin)",
+]
+
+# Linting/formatting
+[tool.ruff]
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint.extend-per-file-ignores]
+"icp/tests/**/test_*.py" = ["F811", "F401"]
+"*_inc.py" = ["F821"]
+
+# This is IDE (e.g. Cursor's default Python language server)
+# Configure it so that developers can use "go-to-definition", "hover types" and other
+# features.
+[tool.basedpyright]
+extraPaths = ["components/src", "lib/bindings/python/src"]
+# This is for external dependencies.
+venvPath = "."
+venv = ".venv"
+
+[tool.mypy]
+
+# --disable-error-code: WAR large set of errors due to mypy not being run
+#   previously. We can slowly enable sets of errors to fix over time.
+# disable_error_code = []
+
+# --explicit-package-bases: WAR errors about duplicate module names used
+#   throughout the llm examples. For example, the common module in
+#   tensorrt_llm and vllm are both named common.
+explicit_package_bases = true
+
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# _version.py is generated at build time and does not exist in the source tree.
+module = ["dynamo.*._version"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Skip type checking for test files.
+module = ["dynamo.*.tests.*", "dynamo.*.tests"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Manual planner helpers are operational scripts, not typed library surfaces.
+module = ["dynamo.planner.manual.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Skip mypy analysis on backend framework internals.
+# ignore_missing_imports silences import-not-found only when the backend
+# is not installed (e.g. sglang/trtllm missing in the vllm container).
+module = ["vllm", "vllm.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sglang", "sglang.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tensorrt_llm", "tensorrt_llm.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# WAR mypy 1.18.x crash with numpy 1.26.x stubs:
+# "Should never get here in normal mode, got TypeAlias:numpy.float64 instead of TypeInfo"
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# Third-party libs without type stubs or optional internal deps
+# TODO: fix the ones that do have stub package
+module = [
+    "nvtx",
+    "fsspec",
+    "fsspec.*",
+    "kubernetes",
+    "kubernetes.*",
+    "scipy",
+    "scipy.*",
+    "sklearn",
+    "sklearn.*",
+    "pandas",
+    "pandas.*",
+    "pmdarima",
+    "pmdarima.*",
+    "filterpy",
+    "filterpy.*",
+    "prophet",
+    "prophet.*",
+    "msgpack",
+    "nixl",
+    "nixl.*",
+    "imageio",
+    "imageio.*",
+    "yaml",
+    "prometheus_api_client",
+    "prometheus_api_client.*",
+    "aiohttp",
+    "aiohttp.*",
+    "vllm_omni",
+    "vllm_omni.*",
+    "modelexpress",
+    "modelexpress.*",
+    "kvbm",
+    "kvbm.*",
+    "diffusers",
+    "diffusers.*",
+    "PIL",
+    "PIL.*",
+    "torch",
+    "torch.*",
+    "transformers",
+    "transformers.*",
+    "cupy",
+    "cupy.*",
+    "gpu_memory_service",
+    "gpu_memory_service.*",
+    "pydantic",
+    "pydantic.*",
+    "uvloop",
+    "prometheus_client",
+    "prometheus_client.*",
+    "pybase64",
+    "blake3",
+    "cupy_backends",
+    "cupy_backends.*",
+    "huggingface_hub",
+    "huggingface_hub.*",
+    "httpx",
+    "httpx.*",
+    "zmq",
+    "zmq.*",
+    "safetensors",
+    "safetensors.*",
+    "gradio",
+    "gradio.*",
+    "kubernetes_asyncio",
+    "kubernetes_asyncio.*",
+    "ray",
+    "ray.*",
+    "pydantic_core",
+    "aiconfigurator",
+    "aiconfigurator.*",
+    "soundfile",
+    "soundfile.*",
+    "librosa",
+    "librosa.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# msgspec.Struct uses custom __init_subclass__ kwargs (frozen, gc) that mypy
+# cannot resolve without the msgspec package installed.
+module = ["msgspec", "msgspec.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Profiler module was never previously type-checked and has many
+# union-attr / attr-defined issues. Skip errors for now.
+module = ["dynamo.profiler.*"]
+ignore_errors = true
+
+[tool.sphinx]
+
+# extra-content-head
+extra_content_head = [
+   '''
+   <script src="https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js" ></script>
+   ''',
+]
+
+#extra-content-footer
+extra_content_footer = [
+   '''
+   <script type="text/javascript">if (typeof _satellite !== "undefined") {_satellite.pageBottom();}</script>
+   ''',
+]

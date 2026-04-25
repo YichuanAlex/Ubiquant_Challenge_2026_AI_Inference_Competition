@@ -1,0 +1,57 @@
+name: Gateway and Scheduler Unit Tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  DEV_IMAGE: llumnix-registry.cn-beijing.cr.aliyuncs.com/llumnix/vllm:dev-20260326-165612
+
+jobs:
+  go-unit-test:
+    name: Go Unit Tests
+    runs-on: [self-hosted, cpu]
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+          clean: true
+
+      - name: Apply sgl-model-gateway patch
+        run: |
+          SGLANG_DIR="lib/sglang"
+          git -C "$SGLANG_DIR" checkout -- .
+          git -C "$SGLANG_DIR" clean -fd sgl-model-gateway/bindings/golang/
+          for patch in "$(pwd)"/patches/sgl-model-gateway/*.patch; do
+            if [ -f "$patch" ]; then
+              echo "Applying patch: $patch"
+              git -C "$SGLANG_DIR" apply "$patch"
+            fi
+          done
+
+      - name: Setup tokenizer cache and build
+        id: setup-tokenizer
+        uses: ./.github/actions/setup-tokenizer-cache-and-build
+        with:
+          dev_image: ${{ env.DEV_IMAGE }}
+
+      - name: Run Go unit tests in dev container
+        env:
+          GOPROXY: https://goproxy.cn|https://goproxy.io|https://proxy.golang.org|direct
+        run: |
+          docker run --rm \
+            --network host \
+            -e GOPROXY="${{ env.GOPROXY }}" \
+            -v "$(pwd):/workspace" \
+            -w /workspace \
+            ${{ env.DEV_IMAGE }} \
+            bash -c "go mod download && make unit-test"
+
+      - name: Fix file ownership
+        if: always()
+        run: sudo chown -R $(id -u):$(id -g) .

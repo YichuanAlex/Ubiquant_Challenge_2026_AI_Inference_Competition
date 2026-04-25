@@ -1,0 +1,160 @@
+VLLM_VERSION ?= v0.18.0
+
+.PHONY: vllm-install
+vllm-install:
+	@echo "==> Cloning vllm repository (branch: releases/$(VLLM_VERSION))..."
+	rm -rf /tmp/vllm
+	git clone -b releases/$(VLLM_VERSION) https://github.com/vllm-project/vllm.git /tmp/vllm
+	
+	@echo "==> Copying patch file..."
+	cp ./patches/vllm/vllm_$(VLLM_VERSION).patch /tmp/vllm_$(VLLM_VERSION).patch
+	
+	@echo "==> Building and installing vllm..."
+	cd /tmp/vllm && \
+	export VLLM_PRECOMPILED_WHEEL_COMMIT=$$(git rev-parse HEAD) && \
+	export VLLM_USE_PRECOMPILED=1 && \
+	patch -p1 < /tmp/vllm_$(VLLM_VERSION).patch && \
+	pip install . --no-deps --no-build-isolation -v
+
+	rm -rf /tmp/vllm
+	rm -f /tmp/vllm_$(VLLM_VERSION).patch
+
+.PHONY: llumlet-install
+llumlet-install:
+	cd ./python/llumnix && make vllm_install && make proto
+
+.PHONY: mooncake-install
+mooncake-install:
+	pip uninstall -y mooncake-transfer-engine || true
+	rm -rf /tmp/Mooncake
+	git clone --recursive https://github.com/kvcache-ai/Mooncake.git /tmp/Mooncake
+	cd /tmp/Mooncake && bash dependencies.sh
+	cd /tmp/Mooncake && mkdir -p build && cd build && \
+		cmake .. \
+			-DPython_EXECUTABLE=/usr/bin/python3.12 \
+			-DPython3_EXECUTABLE=/usr/bin/python3.12 \
+			-DPython_INCLUDE_DIR=/usr/include/python3.12 \
+			-DPython_LIBRARY=/usr/lib/x86_64-linux-gnu/libpython3.12.so \
+			-DPython3_INCLUDE_DIR=/usr/include/python3.12 \
+			-DPython3_LIBRARY=/usr/lib/x86_64-linux-gnu/libpython3.12.so && \
+		make -j$$(nproc) && \
+		make install
+	rm -rf /tmp/Mooncake
+	cp ./patches/vllm/mooncake/mooncake_connector_v1.py /usr/local/lib/python3.12/dist-packages/mooncake/mooncake_connector_v1.py
+
+
+.PHONY: lib-tokenizers-build
+lib-tokenizers-build:
+	cd ./lib/sglang/sgl-model-gateway/bindings/golang && make build
+
+.PHONY: gateway-proto-build
+gateway-proto-build:
+	@protoc --go_out=./pkg/cms/ \
+    	--proto_path="./pkg" \
+    	./pkg/cms/proto/cms.proto
+	@echo "Compiling ./pkg/cms/proto/cms.proto"
+
+	@protoc --go_out=./pkg/scheduler/llumlet/ \
+       --go-grpc_out=./pkg/scheduler/llumlet/ \
+       --proto_path="./pkg" \
+		./pkg/scheduler/llumlet/proto/llumlet_server.proto
+	@echo "Compiling ./pkg/scheduler/llumlet/proto/llumlet_server.proto"
+
+	@protoc --go_out=./pkg/resolver/ \
+       --go-grpc_out=./pkg/resolver/ \
+       --proto_path="./pkg" \
+    	./pkg/resolver/proto/redis_discovery.proto
+	@echo "Compiling ./pkg/resolver/proto/redis_discovery.proto"
+
+.PHONY: scheduler-proto-build
+scheduler-proto-build: gateway-proto-build
+
+.PHONY: gateway-build
+gateway-build: gateway-proto-build
+	@echo "Building gateway..."
+	@CGO_ENABLED=1 go build -buildvcs=false -ldflags="-extldflags '-L./lib/sglang/sgl-model-gateway/bindings/golang/target/release/'" -o bin/gateway ./cmd/gateway
+	@echo "Building gateway, done"
+
+@PHONY: scheduler-build
+scheduler-build: scheduler-proto-build
+	@echo "Building scheduler..."
+	@CGO_ENABLED=1 go build -buildvcs=false -ldflags="-extldflags '-L./lib/sglang/sgl-model-gateway/bindings/golang/target/release/'" -o bin/scheduler ./cmd/scheduler
+	@echo "Building scheduler, done"
+
+.PHONY: discovery-proto-build
+discovery-proto-build:
+	cd ./python/discovery && make proto
+
+.PHONY: llumlet-proto-build
+llumlet-proto-build:
+	cd ./python/llumnix && make proto
+
+.PHONY: discovery-install
+discovery-install:
+	cd ./python/discovery && make install
+
+.PHONY: blade-kvt-install
+blade-kvt-install:
+	./scripts/install/install_blade_kvt.sh
+
+.PHONY: simple-tests
+simple-tests: llumlet-proto-build discovery-proto-build gateway-build scheduler-build
+	pytest -x -v -s ./tests/local/vllm_e2e.py::test_simple_requests
+
+.PHONY: migration-tests
+migration-tests: llumlet-proto-build discovery-proto-build gateway-build scheduler-build
+	pytest -x -v -s ./tests/local/vllm_e2e.py::test_migration
+
+.PHONY: migration-correctness-tests
+migration-correctness-tests: llumlet-proto-build discovery-proto-build gateway-build scheduler-build
+	MODEL_NAME=Qwen/Qwen3-8B pytest -x -v -s ./tests/local/vllm_migration_correctness.py::test_migration_correctness
+	MODEL_NAME=Qwen/Qwen3-8B USE_EAGLE3=1 pytest -x -v -s ./tests/local/vllm_migration_correctness.py::test_migration_correctness
+	MODEL_NAME=Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 pytest -x -v -s ./tests/local/vllm_migration_correctness.py::test_migration_correctness
+	MODEL_NAME=Qwen/Qwen3-Next-80B-A3B-Instruct-FP8 USE_MTP=1 pytest -x -v -s ./tests/local/vllm_migration_correctness.py::test_migration_correctness
+
+.PHONY: benchmark-tests
+benchmark-tests: llumlet-proto-build discovery-proto-build gateway-build scheduler-build
+	PYTHONPATH=$(shell pwd) pytest -x -v -s ./tests/local/vllm_benchmark.py::test_benchmark
+
+.PHONY: e2e-test
+e2e-test: llumlet-proto-build discovery-proto-build gateway-build scheduler-build simple-tests migration-tests
+
+TEST_DIRS := $(shell go list ./pkg/... | grep -v "/kvs/v6d" | grep -v "/kvs/mooncake")
+
+.PHONY: unit-test
+unit-test: gateway-build scheduler-build
+	CGO_ENABLED=1 \
+	CGO_LDFLAGS="-L./lib/sglang/sgl-model-gateway/bindings/golang/target/release" \
+	go test -v -failfast $(TEST_DIRS) 2>&1 | grep -v "no test files"
+
+# ── Lint ───────────────────────────────────────────────────────────────────────
+PYLINT_VERSION=3.3.9
+WRAPT_VERSION=2.1.2
+
+.PHONY: lint-install
+lint-install:
+	pip3 install wrapt==$(WRAPT_VERSION) pylint==$(PYLINT_VERSION)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(shell go env GOPATH)/bin v1.64.5
+
+.PHONY: lint-pylint
+lint-pylint:
+	pylint python/llumnix/llumnix/ --rcfile=.pylintrc
+	pylint python/discovery/discovery/ --rcfile=.pylintrc --ignore=__pycache__
+	pylint benchmarks/ --rcfile=.pylintrc --ignore=__pycache__
+	pylint tests/local --rcfile=./tests/.pylintrc --ignore=__pycache__
+
+.PHONY: lint-go
+lint-go: gateway-proto-build
+	golangci-lint run --tests=false ./cmd/... ./pkg/...
+
+.PHONY: lint
+lint: lint-install lint-pylint lint-go
+
+# ── Format ──────────────────────────────────────────────────────────────────────
+.PHONY: format-install
+format-install:
+	pip3 install black
+
+.PHONY: format
+format:
+	black python/llumnix/ python/discovery/ benchmarks/ tests/

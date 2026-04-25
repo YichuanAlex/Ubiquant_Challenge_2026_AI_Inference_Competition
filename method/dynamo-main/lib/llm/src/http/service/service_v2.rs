@@ -1,0 +1,708 @@
+// SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+use std::collections::HashMap;
+use std::env::var;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::Response;
+
+use super::Metrics;
+use super::RouteDoc;
+use super::metrics;
+use super::metrics::register_worker_timing_metrics;
+use crate::discovery::ModelManager;
+use crate::endpoint_type::EndpointType;
+use crate::kv_router::metrics::{
+    RoutingOverheadMetrics, register_router_queue_metrics, register_worker_load_metrics,
+};
+use crate::request_template::RequestTemplate;
+use anyhow::Result;
+use axum_server::tls_rustls::RustlsConfig;
+use derive_builder::Builder;
+use dynamo_runtime::config::env_is_truthy;
+use dynamo_runtime::config::environment_names::llm as env_llm;
+use dynamo_runtime::discovery::Discovery;
+use dynamo_runtime::logging::{make_inference_request_span, make_system_request_span};
+use dynamo_runtime::metrics::{
+    frontend_perf::ensure_frontend_perf_metrics_registered_prometheus,
+    request_plane::ensure_request_plane_metrics_registered_prometheus,
+    tokio_perf::{ensure_tokio_perf_metrics_registered_prometheus, tokio_metrics_and_canary_loop},
+    transport_metrics::ensure_transport_metrics_registered_prometheus,
+};
+use std::net::SocketAddr;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tower_http::trace::TraceLayer;
+
+/// Middleware that echoes `x-request-id` from request to response headers.
+async fn echo_request_id_header(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let x_request_id = request.headers().get("x-request-id").cloned();
+    let mut response = next.run(request).await;
+    if let Some(value) = x_request_id {
+        response.headers_mut().insert("x-request-id", value);
+    }
+    response
+}
+
+/// HTTP service shared state
+pub struct State {
+    metrics: Arc<Metrics>,
+    manager: Arc<ModelManager>,
+    discovery_client: Arc<dyn Discovery>,
+    flags: StateFlags,
+    cancel_token: CancellationToken,
+}
+
+#[derive(Default, Debug)]
+struct StateFlags {
+    chat_endpoints_enabled: AtomicBool,
+    cmpl_endpoints_enabled: AtomicBool,
+    embeddings_endpoints_enabled: AtomicBool,
+    images_endpoints_enabled: AtomicBool,
+    videos_endpoints_enabled: AtomicBool,
+    audios_endpoints_enabled: AtomicBool,
+    responses_endpoints_enabled: AtomicBool,
+    anthropic_endpoints_enabled: AtomicBool,
+}
+
+impl StateFlags {
+    pub fn get(&self, endpoint_type: &EndpointType) -> bool {
+        match endpoint_type {
+            EndpointType::Chat => self.chat_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Completion => self.cmpl_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Embedding => self.embeddings_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Images => self.images_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Videos => self.videos_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Audios => self.audios_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::Responses => self.responses_endpoints_enabled.load(Ordering::Relaxed),
+            EndpointType::AnthropicMessages => {
+                self.anthropic_endpoints_enabled.load(Ordering::Relaxed)
+            }
+        }
+    }
+
+    pub fn set(&self, endpoint_type: &EndpointType, enabled: bool) {
+        match endpoint_type {
+            EndpointType::Chat => self
+                .chat_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Completion => self
+                .cmpl_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Embedding => self
+                .embeddings_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Images => self
+                .images_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Videos => self
+                .videos_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Audios => self
+                .audios_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::Responses => self
+                .responses_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+            EndpointType::AnthropicMessages => self
+                .anthropic_endpoints_enabled
+                .store(enabled, Ordering::Relaxed),
+        }
+    }
+}
+
+impl State {
+    pub fn new(
+        manager: Arc<ModelManager>,
+        discovery_client: Arc<dyn Discovery>,
+        cancel_token: CancellationToken,
+    ) -> Self {
+        Self {
+            manager,
+            metrics: Arc::new(Metrics::default()),
+            discovery_client,
+            flags: StateFlags {
+                chat_endpoints_enabled: AtomicBool::new(false),
+                cmpl_endpoints_enabled: AtomicBool::new(false),
+                embeddings_endpoints_enabled: AtomicBool::new(false),
+                images_endpoints_enabled: AtomicBool::new(false),
+                videos_endpoints_enabled: AtomicBool::new(false),
+                audios_endpoints_enabled: AtomicBool::new(false),
+                responses_endpoints_enabled: AtomicBool::new(false),
+                anthropic_endpoints_enabled: AtomicBool::new(false),
+            },
+            cancel_token,
+        }
+    }
+
+    /// Get the Prometheus [`Metrics`] object which tracks request counts and inflight requests
+    pub fn metrics_clone(&self) -> Arc<Metrics> {
+        self.metrics.clone()
+    }
+
+    pub fn manager(&self) -> &ModelManager {
+        Arc::as_ref(&self.manager)
+    }
+
+    pub fn manager_clone(&self) -> Arc<ModelManager> {
+        self.manager.clone()
+    }
+
+    pub fn discovery(&self) -> Arc<dyn Discovery> {
+        self.discovery_client.clone()
+    }
+
+    /// Check if the service is shutting down
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_token.is_cancelled()
+    }
+
+    /// Get the cancellation token
+    pub fn cancel_token(&self) -> &CancellationToken {
+        &self.cancel_token
+    }
+
+    // TODO
+    pub fn sse_keep_alive(&self) -> Option<Duration> {
+        None
+    }
+
+    /// Returns true if streaming tool call dispatch is enabled via
+    /// [`env_llm::DYN_ENABLE_STREAMING_TOOL_DISPATCH`].
+    ///
+    /// When enabled, the chat completions streaming path emits `event: tool_call_dispatch`
+    /// SSE events for each complete tool call, letting clients start processing tool calls
+    /// before `finish_reason="tool_calls"` arrives.
+    pub fn streaming_tool_dispatch_enabled(&self) -> bool {
+        env_is_truthy(env_llm::DYN_ENABLE_STREAMING_TOOL_DISPATCH)
+    }
+
+    /// Returns true if streaming reasoning dispatch is enabled via
+    /// [`env_llm::DYN_ENABLE_STREAMING_REASONING_DISPATCH`].
+    ///
+    /// When enabled, the chat completions streaming path accumulates reasoning tokens and
+    /// emits a single `event: reasoning_dispatch` SSE event with the complete reasoning
+    /// block once thinking ends (DeepSeek-R1, Qwen3, etc.).
+    pub fn streaming_reasoning_dispatch_enabled(&self) -> bool {
+        env_is_truthy(env_llm::DYN_ENABLE_STREAMING_REASONING_DISPATCH)
+    }
+}
+
+#[derive(Clone)]
+pub struct HttpService {
+    // The state we share with every request handler
+    state: Arc<State>,
+
+    router: axum::Router,
+    port: u16,
+    host: String,
+    enable_tls: bool,
+    tls_cert_path: Option<PathBuf>,
+    tls_key_path: Option<PathBuf>,
+    route_docs: Vec<RouteDoc>,
+}
+
+#[derive(Clone, Builder)]
+#[builder(pattern = "owned", build_fn(private, name = "build_internal"))]
+pub struct HttpServiceConfig {
+    #[builder(default = "8787")]
+    port: u16,
+
+    #[builder(setter(into), default = "String::from(\"0.0.0.0\")")]
+    host: String,
+
+    #[builder(default = "false")]
+    enable_tls: bool,
+
+    #[builder(default = "None")]
+    tls_cert_path: Option<PathBuf>,
+
+    #[builder(default = "None")]
+    tls_key_path: Option<PathBuf>,
+
+    // #[builder(default)]
+    // custom: Vec<axum::Router>
+    #[builder(default = "false")]
+    enable_chat_endpoints: bool,
+
+    #[builder(default = "false")]
+    enable_cmpl_endpoints: bool,
+
+    #[builder(default = "true")]
+    enable_embeddings_endpoints: bool,
+
+    #[builder(default = "true")]
+    enable_responses_endpoints: bool,
+
+    #[builder(default = "false")]
+    enable_anthropic_endpoints: bool,
+
+    #[builder(default = "None")]
+    request_template: Option<RequestTemplate>,
+
+    #[builder(default = "None")]
+    discovery: Option<Arc<dyn Discovery>>,
+
+    #[builder(default = "None")]
+    cancel_token: Option<CancellationToken>,
+
+    /// When set, the `/metrics` endpoint will also expose metrics from the
+    /// DRT's registry tree (anything created via `metrics().create*()`).
+    #[builder(default = "None")]
+    drt_metrics: Option<dynamo_runtime::metrics::MetricsRegistry>,
+
+    /// When set (e.g. DRT discovery), router metrics (dynamo_router_* with router_id label)
+    /// are registered using discovery.instance_id() and exposed on /metrics.
+    #[builder(default = "None")]
+    drt_discovery: Option<Arc<dyn Discovery>>,
+}
+
+impl HttpService {
+    pub fn builder() -> HttpServiceConfigBuilder {
+        HttpServiceConfigBuilder::default()
+    }
+
+    pub fn state_clone(&self) -> Arc<State> {
+        self.state.clone()
+    }
+
+    pub fn state(&self) -> &State {
+        Arc::as_ref(&self.state)
+    }
+
+    pub fn model_manager(&self) -> &ModelManager {
+        self.state().manager()
+    }
+
+    pub async fn spawn(&self, cancel_token: CancellationToken) -> JoinHandle<Result<()>> {
+        let this = self.clone();
+        tokio::spawn(async move { this.run(cancel_token).await })
+    }
+
+    pub async fn run(&self, cancel_token: CancellationToken) -> Result<()> {
+        let address = format!("{}:{}", self.host, self.port);
+        let protocol = if self.enable_tls { "HTTPS" } else { "HTTP" };
+        tracing::info!(protocol, address, "Starting HTTP(S) service");
+
+        let router = self.router.clone();
+        let observer = cancel_token.child_token();
+
+        let state_cancel = self.state.cancel_token().clone();
+
+        let addr: SocketAddr = address
+            .parse()
+            .map_err(|e| anyhow::anyhow!("Invalid address '{}': {}", address, e))?;
+
+        if self.enable_tls {
+            let cert_path = self
+                .tls_cert_path
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("TLS certificate path not provided"))?;
+            let key_path = self
+                .tls_key_path
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("TLS private key path not provided"))?;
+
+            // aws_lc_rs is the default but other crates pull in `ring` also,
+            // so rustls doesn't know which one to use. Tell it.
+            if let Err(e) = rustls::crypto::aws_lc_rs::default_provider().install_default() {
+                tracing::debug!("TLS crypto provider already installed: {e:?}");
+            }
+
+            let config = RustlsConfig::from_pem_file(cert_path, key_path)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to create TLS config: {}", e))?;
+
+            let handle = axum_server::Handle::new();
+            let server = axum_server::bind_rustls(addr, config)
+                .handle(handle.clone())
+                .serve(router.into_make_service());
+
+            // Spawn canary after all fallible startup so it won't leak on early errors
+            tokio::spawn(tokio_metrics_and_canary_loop(cancel_token.clone()));
+
+            tokio::select! {
+                result = server => {
+                    let result = result.map_err(|e| anyhow::anyhow!("HTTPS server error: {}", e));
+                    cancel_token.cancel();
+                    result?;
+                }
+                _ = observer.cancelled() => {
+                    state_cancel.cancel();
+                    tracing::info!("HTTPS server shutdown requested");
+                    // accepting requests for 5 more seconds, to allow incorrectly routed requests to arrive
+                    handle.graceful_shutdown(Some(Duration::from_secs(get_graceful_shutdown_timeout() as u64)));
+                    // no longer accepting requests, draining all existing connections
+                }
+            }
+        } else {
+            let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+                tracing::error!(
+                    protocol = %protocol,
+                    address = %address,
+                    error = %e,
+                    "Failed to bind server to address"
+                );
+                match e.kind() {
+                    std::io::ErrorKind::AddrInUse => anyhow::anyhow!(
+                        "Failed to start {} server: port {} already in use. Use --http-port to specify a different port.",
+                        protocol,
+                        self.port
+                    ),
+                    _ => anyhow::anyhow!(
+                        "Failed to start {} server on {}: {}",
+                        protocol,
+                        address,
+                        e
+                    ),
+                }
+            })?;
+
+            // Spawn canary after all fallible startup so it won't leak on early errors
+            tokio::spawn(tokio_metrics_and_canary_loop(cancel_token.clone()));
+
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async move {
+                    observer.cancelled_owned().await;
+                    state_cancel.cancel();
+                    tracing::info!("HTTP server shutdown requested");
+                    // accepting requests for 5 more seconds, to allow incorrectly routed requests to arrive
+                    tokio::time::sleep(Duration::from_secs(get_graceful_shutdown_timeout() as u64))
+                        .await;
+                    // no longer accepting requests, draining all existing connections
+                })
+                .await
+                .inspect_err(|_| cancel_token.cancel())?;
+            cancel_token.cancel();
+        }
+
+        Ok(())
+    }
+
+    /// Documentation of exposed HTTP endpoints
+    pub fn route_docs(&self) -> &[RouteDoc] {
+        &self.route_docs
+    }
+
+    pub fn enable_model_endpoint(&self, endpoint_type: EndpointType, enable: bool) {
+        self.state.flags.set(&endpoint_type, enable);
+        tracing::info!(
+            "{} endpoints {}",
+            endpoint_type.as_str(),
+            if enable { "enabled" } else { "disabled" }
+        );
+    }
+}
+
+fn get_graceful_shutdown_timeout() -> usize {
+    std::env::var(env_llm::DYN_HTTP_GRACEFUL_SHUTDOWN_TIMEOUT_SECS)
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(5)
+}
+
+/// Environment variable to set the metrics endpoint path (default: `/metrics`)
+static HTTP_SVC_METRICS_PATH_ENV: &str = "DYN_HTTP_SVC_METRICS_PATH";
+/// Environment variable to set the models endpoint path (default: `/v1/models`)
+static HTTP_SVC_MODELS_PATH_ENV: &str = "DYN_HTTP_SVC_MODELS_PATH";
+/// Environment variable to set the health endpoint path (default: `/health`)
+static HTTP_SVC_HEALTH_PATH_ENV: &str = "DYN_HTTP_SVC_HEALTH_PATH";
+/// Environment variable to set the live endpoint path (default: `/live`)
+static HTTP_SVC_LIVE_PATH_ENV: &str = "DYN_HTTP_SVC_LIVE_PATH";
+/// Environment variable to set the chat completions endpoint path (default: `/v1/chat/completions`)
+static HTTP_SVC_CHAT_PATH_ENV: &str = "DYN_HTTP_SVC_CHAT_PATH";
+/// Environment variable to set the completions endpoint path (default: `/v1/completions`)
+static HTTP_SVC_CMP_PATH_ENV: &str = "DYN_HTTP_SVC_CMP_PATH";
+/// Environment variable to set the embeddings endpoint path (default: `/v1/embeddings`)
+static HTTP_SVC_EMB_PATH_ENV: &str = "DYN_HTTP_SVC_EMB_PATH";
+/// Environment variable to set the responses endpoint path (default: `/v1/responses`)
+static HTTP_SVC_RESPONSES_PATH_ENV: &str = "DYN_HTTP_SVC_RESPONSES_PATH";
+/// Environment variable to set the anthropic messages endpoint path (default: `/v1/messages`)
+static HTTP_SVC_ANTHROPIC_PATH_ENV: &str = "DYN_HTTP_SVC_ANTHROPIC_PATH";
+
+impl HttpServiceConfigBuilder {
+    pub fn build(self) -> Result<HttpService, anyhow::Error> {
+        let config: HttpServiceConfig = self.build_internal()?;
+
+        let model_manager = Arc::new(ModelManager::new());
+        let cancel_token = config.cancel_token.unwrap_or_default();
+        // Use the provided discovery client, or fall back to a no-op memory-backed one
+        // (for in-process modes that don't need discovery)
+        let discovery_client = config.discovery.unwrap_or_else(|| {
+            use dynamo_runtime::discovery::KVStoreDiscovery;
+            Arc::new(KVStoreDiscovery::new(
+                dynamo_runtime::storage::kv::Manager::memory(),
+                cancel_token.child_token(),
+            )) as Arc<dyn Discovery>
+        });
+        let state = Arc::new(State::new(model_manager, discovery_client, cancel_token));
+        state
+            .flags
+            .set(&EndpointType::Chat, config.enable_chat_endpoints);
+        state
+            .flags
+            .set(&EndpointType::Completion, config.enable_cmpl_endpoints);
+        state
+            .flags
+            .set(&EndpointType::Embedding, config.enable_embeddings_endpoints);
+        state
+            .flags
+            .set(&EndpointType::Responses, config.enable_responses_endpoints);
+        state.flags.set(
+            &EndpointType::AnthropicMessages,
+            config.enable_anthropic_endpoints,
+        );
+
+        // enable prometheus metrics
+        let registry = metrics::Registry::new();
+        state.metrics_clone().register(&registry)?;
+
+        // Register worker load metrics (active_decode_blocks, active_prefill_tokens per worker)
+        // These are updated by KvWorkerMonitor when receiving ActiveLoad events
+        if let Err(e) = register_worker_load_metrics(&registry) {
+            tracing::warn!("Failed to register worker load metrics: {}", e);
+        }
+
+        // Register worker timing metrics (last_ttft, last_itl per worker)
+        // These are updated by ResponseMetricCollector when observing TTFT/ITL
+        if let Err(e) = register_worker_timing_metrics(&registry) {
+            tracing::warn!("Failed to register worker timing metrics: {}", e);
+        }
+
+        // Register router queue metrics (pending requests per worker_type)
+        // These are updated by KvScheduler on enqueue/update/free
+        if let Err(e) = register_router_queue_metrics(&registry) {
+            tracing::warn!("Failed to register router queue metrics: {}", e);
+        }
+
+        if let Some(ref discovery) = config.drt_discovery {
+            let instance_id = discovery.instance_id();
+            if let Err(e) = RoutingOverheadMetrics::register(&registry, instance_id) {
+                tracing::warn!("Failed to register routing overhead metrics: {}", e);
+            }
+        }
+
+        if let Err(e) = ensure_request_plane_metrics_registered_prometheus(&registry) {
+            tracing::warn!("Failed to register request-plane metrics: {}", e);
+        }
+        if let Err(e) = ensure_frontend_perf_metrics_registered_prometheus(&registry) {
+            tracing::warn!("Failed to register frontend perf metrics: {}", e);
+        }
+        if let Err(e) = ensure_tokio_perf_metrics_registered_prometheus(&registry) {
+            tracing::warn!("Failed to register tokio perf metrics: {}", e);
+        }
+        if let Err(e) = ensure_transport_metrics_registered_prometheus(&registry) {
+            tracing::warn!("Failed to register transport metrics: {}", e);
+        }
+
+        let mut all_docs = Vec::new();
+
+        // Shared on_response callback for both system and inference routes
+        let on_response = |response: &Response<Body>, latency: Duration, _span: &tracing::Span| {
+            let status = response.status();
+            let latency_ms = latency.as_millis();
+            if status.is_server_error() || status.is_client_error() {
+                tracing::error!(status = %status.as_u16(), latency_ms = %latency_ms, "http response sent");
+            } else {
+                tracing::info!(status = %status.as_u16(), latency_ms = %latency_ms, "http response sent");
+            }
+        };
+
+        // System routes (health, metrics, models) — debug-level spans
+        let system_routes = vec![
+            metrics::router(
+                registry,
+                var(HTTP_SVC_METRICS_PATH_ENV).ok(),
+                config.drt_metrics,
+            ),
+            if env_is_truthy(env_llm::DYN_ENABLE_ANTHROPIC_API) {
+                super::anthropic::anthropic_models_router(
+                    state.clone(),
+                    var(HTTP_SVC_MODELS_PATH_ENV).ok(),
+                )
+            } else {
+                super::openai::list_models_router(state.clone(), var(HTTP_SVC_MODELS_PATH_ENV).ok())
+            },
+            super::health::health_check_router(state.clone(), var(HTTP_SVC_HEALTH_PATH_ENV).ok()),
+            super::health::live_check_router(state.clone(), var(HTTP_SVC_LIVE_PATH_ENV).ok()),
+            super::busy_threshold::busy_threshold_router(state.clone(), None),
+        ];
+        let mut system_router = axum::Router::new();
+        for (route_docs, route) in system_routes {
+            system_router = system_router.merge(route);
+            all_docs.extend(route_docs);
+        }
+        // Inference routes (completions, chat, embeddings, etc.) — info-level spans
+        let endpoint_routes =
+            HttpServiceConfigBuilder::get_endpoints_router(state.clone(), &config.request_template);
+        let mut inference_router = axum::Router::new();
+        for (route_docs, route) in endpoint_routes {
+            inference_router = inference_router.merge(route);
+            all_docs.extend(route_docs);
+        }
+        inference_router = inference_router.layer(
+            TraceLayer::new_for_http()
+                .make_span_with(make_inference_request_span)
+                .on_response(on_response),
+        );
+
+        // OpenAPI documentation routes (system)
+        let (openapi_docs, openapi_route) =
+            super::openapi_docs::openapi_router(all_docs.clone(), None);
+        system_router = system_router.merge(openapi_route);
+        all_docs.extend(openapi_docs);
+
+        system_router = system_router.layer(
+            TraceLayer::new_for_http()
+                .make_span_with(make_system_request_span)
+                .on_response(on_response),
+        );
+
+        let router = system_router.merge(inference_router);
+
+        // Echo x-request-id from request to response headers for client correlation
+        let router = router.layer(axum::middleware::from_fn(echo_request_id_header));
+
+        Ok(HttpService {
+            state,
+            router,
+            port: config.port,
+            host: config.host,
+            enable_tls: config.enable_tls,
+            tls_cert_path: config.tls_cert_path,
+            tls_key_path: config.tls_key_path,
+            route_docs: all_docs,
+        })
+    }
+
+    pub fn with_request_template(mut self, request_template: Option<RequestTemplate>) -> Self {
+        self.request_template = Some(request_template);
+        self
+    }
+
+    fn get_endpoints_router(
+        state: Arc<State>,
+        request_template: &Option<RequestTemplate>,
+    ) -> Vec<(Vec<RouteDoc>, axum::Router)> {
+        let mut routes = Vec::new();
+        // Add chat completions route with conditional middleware
+        let (chat_docs, chat_route) = super::openai::chat_completions_router(
+            state.clone(),
+            request_template.clone(),
+            var(HTTP_SVC_CHAT_PATH_ENV).ok(),
+        );
+        let (cmpl_docs, cmpl_route) =
+            super::openai::completions_router(state.clone(), var(HTTP_SVC_CMP_PATH_ENV).ok());
+        let (embed_docs, embed_route) =
+            super::openai::embeddings_router(state.clone(), var(HTTP_SVC_EMB_PATH_ENV).ok());
+        let (images_docs, images_route) = super::openai::images_router(state.clone(), None);
+        let (videos_docs, videos_route) = super::openai::videos_router(state.clone(), None);
+        let (audios_docs, audios_route) = super::openai::audios_router(state.clone(), None);
+        let (responses_docs, responses_route) = super::openai::responses_router(
+            state.clone(),
+            request_template.clone(),
+            var(HTTP_SVC_RESPONSES_PATH_ENV).ok(),
+        );
+        let mut endpoint_routes = HashMap::new();
+        endpoint_routes.insert(EndpointType::Chat, (chat_docs, chat_route));
+        endpoint_routes.insert(EndpointType::Completion, (cmpl_docs, cmpl_route));
+        endpoint_routes.insert(EndpointType::Embedding, (embed_docs, embed_route));
+        endpoint_routes.insert(EndpointType::Images, (images_docs, images_route));
+        endpoint_routes.insert(EndpointType::Videos, (videos_docs, videos_route));
+        endpoint_routes.insert(EndpointType::Audios, (audios_docs, audios_route));
+        endpoint_routes.insert(EndpointType::Responses, (responses_docs, responses_route));
+
+        if env_is_truthy(env_llm::DYN_ENABLE_ANTHROPIC_API) {
+            tracing::warn!("Anthropic Messages API (/v1/messages) is experimental.");
+            let (anthropic_docs, anthropic_route) = super::anthropic::anthropic_messages_router(
+                state.clone(),
+                request_template.clone(),
+                var(HTTP_SVC_ANTHROPIC_PATH_ENV).ok(),
+            );
+            endpoint_routes.insert(
+                EndpointType::AnthropicMessages,
+                (anthropic_docs, anthropic_route),
+            );
+        }
+
+        for endpoint_type in EndpointType::all() {
+            let state_route = state.clone();
+            if !endpoint_routes.contains_key(&endpoint_type) {
+                tracing::debug!("{} endpoints are disabled", endpoint_type.as_str());
+                continue;
+            }
+            let (docs, route) = endpoint_routes.get(&endpoint_type).cloned().unwrap();
+            let route = route.route_layer(axum::middleware::from_fn(
+                move |req: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
+                    let state: Arc<State> = state_route.clone();
+                    async move {
+                        // Check if the endpoint is enabled
+                        let enabled = state.flags.get(&endpoint_type);
+                        if enabled {
+                            Ok(next.run(req).await)
+                        } else {
+                            tracing::debug!("{} endpoints are disabled", endpoint_type.as_str());
+                            Err(axum::http::StatusCode::NOT_FOUND)
+                        }
+                    }
+                },
+            ));
+            routes.push((docs, route));
+        }
+        routes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    #[serial]
+    async fn test_liveness_endpoint_reflects_cancellation() {
+        // 1. Setup service & token
+        let cancel_token = Arc::new(CancellationToken::new());
+        let service = HttpService::builder().build().unwrap();
+        let port = service.port;
+
+        // 2. Spawn service with shared token
+        let service_token = cancel_token.clone();
+        let handle = tokio::spawn(async move {
+            service.run((*service_token).clone()).await.unwrap();
+        });
+
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+
+        // 3. Cancel the token
+        cancel_token.cancel();
+
+        // 4. Wait a tiny bit for propagation
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // 5. Hit the endpoint
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(format!("http://localhost:{}/live", port))
+            .send()
+            .await
+            .expect("Request failed");
+
+        // 6. ASSERTION: Should be 503 Service Unavailable
+        assert_eq!(resp.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+
+        // Clean up
+        handle.abort();
+    }
+}

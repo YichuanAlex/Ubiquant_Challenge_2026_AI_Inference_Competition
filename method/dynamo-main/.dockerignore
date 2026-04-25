@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+**/*.onnx
+**/*.plan
+**/*.onnx
+**/*.plan
+**/*.etcd
+**/.cache/*
+**/__pycache__
+**/*.pyc
+**/*onnx*
+# Engine must be allowed because code contains llm_engine.py
+**/*tensorrtllm_engines*
+**/*tensorrtllm_models*
+**/*tensorrtllm_checkpoints*
+**/*hf_downloads*
+**/*pytorch_model*
+**/*.pth*
+**/*.pt
+**/*.models/*
+**/*.model-store/*
+**/*.model.*/*
+**/*.cache/*
+**/*.libtorch_model_store/*
+**/.git
+**/.github
+**/*backup*/
+.dockerignore
+**/target/*
+**/*safetensors
+container/Dockerfile*
+container/**/*.Dockerfile
+container/render.py
+container/context.yaml
+container/compliance/
+.venv
+.venv-docs
+
+# GPU Memory Service build artifacts
+lib/gpu_memory_service/build/
+lib/gpu_memory_service/*.egg-info/
+lib/gpu_memory_service/**/*.so
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+*.egg
+
+# Rust
+target/
+
+# IDE/Editor
+.idea/
+*.swp
+*.swo
+.vscode/
+.build/
+
+# Tests & Linters
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.ruff_cache/
+.mypy_cache/
+
+# Docs
+docs/_build/
+
+# AI
+.cursor/
+.claude/

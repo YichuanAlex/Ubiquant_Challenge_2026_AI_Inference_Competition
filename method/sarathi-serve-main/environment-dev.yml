@@ -1,0 +1,12 @@
+name: sarathi-serve
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - setuptools
+  - pip
+  - make
+  - black=24.4.2
+  - isort=5.13.2
+  - flake8=7.1.0
+  - autopep8=2.3.0

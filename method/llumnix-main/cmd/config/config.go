@@ -1,0 +1,496 @@
+package config
+
+import (
+	"strings"
+	"time"
+
+	"github.com/spf13/pflag"
+	"k8s.io/klog/v2"
+
+	"llumnix/pkg/consts"
+)
+
+type DiscoveryConfig struct {
+	// instead of relying on the active registration of inference instances, the
+	// backend services are actively discovered through the scheduler, which can
+	// only be used in the scenario where BackendService are set
+	LLMBackendDiscovery string
+	SchedulerDiscovery  string
+
+	RedisDiscoveryConfig
+	EtcdDiscoveryConfig
+	EndpointDiscoveryConfig
+}
+
+func (c *DiscoveryConfig) AddDiscoveryConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.LLMBackendDiscovery, "llm-backend-discovery", "redis", "use redis/etcd/endpoints to discovery backend services.")
+	flags.StringVar(&c.SchedulerDiscovery, "scheduler-discovery", "endpoints", "use endpoints to discovery scheduler services.")
+
+	c.RedisDiscoveryConfig.AddRedisDiscoveryConfigFlags(flags)
+	c.EtcdDiscoveryConfig.AddEtcdDiscoveryConfigFlags(flags)
+	c.EndpointDiscoveryConfig.AddEndpointDiscoveryConfigFlags(flags)
+}
+
+type EtcdDiscoveryConfig struct {
+	DiscoveryEtcdEndpoints          string
+	DiscoveryEtcdUsername           string
+	DiscoveryEtcdPassword           string
+	DiscoveryEtcdDialTimeout        float64
+	DiscoveryEtcdLeaseTTL           int
+	DiscoveryEtcdRefreshIntervalSec int
+}
+
+func (c *EtcdDiscoveryConfig) AddEtcdDiscoveryConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.DiscoveryEtcdEndpoints, "discovery-etcd-endpoints", "etcd:2379", "etcd discovery endpoints, comma-separated (e.g. etcd-0:2379,etcd-1:2379)")
+	flags.StringVar(&c.DiscoveryEtcdUsername, "discovery-etcd-username", "", "etcd discovery username")
+	flags.StringVar(&c.DiscoveryEtcdPassword, "discovery-etcd-password", "", "etcd discovery password")
+	flags.Float64Var(&c.DiscoveryEtcdDialTimeout, "discovery-etcd-dial-timeout", 5.0, "etcd discovery dial timeout in seconds")
+	flags.IntVar(&c.DiscoveryEtcdLeaseTTL, "discovery-etcd-lease-ttl", 60, "etcd discovery lease TTL in seconds")
+	flags.IntVar(&c.DiscoveryEtcdRefreshIntervalSec, "discovery-etcd-refresh-interval-sec", 3600, "etcd discovery periodic refresh interval in seconds (safety net for missed Watch events)")
+}
+
+type EndpointDiscoveryConfig struct {
+	LLMBackendEndpoints string
+	SchedulerEndpoints  string
+}
+
+func (c *EndpointDiscoveryConfig) AddEndpointDiscoveryConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.LLMBackendEndpoints, "llm-backend-endpoints", "", "backend endpoints, example: 0.0.0.0:8090,0.0.0.0:8091")
+	flags.StringVar(&c.SchedulerEndpoints, "scheduler-endpoints", "", "scheduler endpoints, example: 0.0.0.0:8090,0.0.0.0:8091")
+}
+
+type RedisDiscoveryConfig struct {
+	DiscoveryRedisHost          string
+	DiscoveryRedisPort          int
+	DiscoveryRedisUsername      string
+	DiscoveryRedisPassword      string
+	DiscoveryRedisSocketTimeout float64
+	DiscoveryRedisRetryTimes    int
+
+	DiscoveryRedisRefreshIntervalMs int
+	DiscoveryRedisStatusTTLMs       int
+}
+
+func (c *RedisDiscoveryConfig) AddRedisDiscoveryConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.DiscoveryRedisHost, "discovery-redis-host", "redis", "Redis discovery host")
+	flags.IntVar(&c.DiscoveryRedisPort, "discovery-redis-port", 6379, "Redis discovery port")
+	flags.StringVar(&c.DiscoveryRedisUsername, "discovery-redis-username", "", "Redis discovery username")
+	flags.StringVar(&c.DiscoveryRedisPassword, "discovery-redis-password", "", "Redis discovery password")
+	flags.Float64Var(&c.DiscoveryRedisSocketTimeout, "discovery-redis-socket-timeout", 1.0, "Redis discovery socket timeout")
+	flags.IntVar(&c.DiscoveryRedisRetryTimes, "discovery-redis-retry-times", 1, "Redis discovery retry times")
+	flags.IntVar(&c.DiscoveryRedisStatusTTLMs, "discovery-redis-status-ttl-ms", 60000, "Redis discovery status TTL milliseconds")
+	flags.IntVar(&c.DiscoveryRedisRefreshIntervalMs, "discovery-redis-refresh-interval-ms", 1000, "Redis discovery refresh interval milliseconds")
+}
+
+type ProcessorConfig struct {
+	// Tokenizer related configuration
+	// builtin tokenizer name
+	TokenizerName string
+	// self defined tokenizer path, will overwrite the builtin tokenizer name when not empty
+	TokenizerPath    string
+	ChatTemplatePath string
+	// Override model max length; 0 means use the value from tokenizer_config.json.
+	// The engine derives max_model_len from config.json, while the gateway reads model_max_length
+	// from tokenizer_config.json. These two values can differ, causing the gateway to generate a max_tokens
+	// that exceeds the engine's actual limit. This flag allows explicitly aligning the two.
+	MaxModelLen uint64
+
+	ToolCallParser  string
+	ReasoningParser string
+}
+
+func (c *ProcessorConfig) AddProcessorConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.TokenizerName, "tokenizer-name", "", "builtin tokenizer name")
+	flags.StringVar(&c.TokenizerPath, "tokenizer-path", "", "builtin tokenizer path")
+	flags.StringVar(&c.ChatTemplatePath, "chat-template", "", "chat template path")
+	flags.Uint64Var(&c.MaxModelLen, "max-model-len", 0, "override the model_max_length from tokenizer_config.json; 0 means use the value from tokenizer_config.json")
+	flags.StringVar(&c.ToolCallParser, "tool-call-parser", "", "tool call parser type")
+	flags.StringVar(&c.ReasoningParser, "reasoning-parser", "", "reasoning parser type")
+}
+
+type RouteConfig struct {
+	RoutePolicy    string
+	RouteConfigRaw string
+
+	RetryMaxCount int
+
+	FallbackRetryQueueEnabled bool
+	FallbackRetryQueueSize    int
+	FallbackRetryWorkerSize   int
+	FallbackRetryMaxCount     int
+	FallbackRetryInitDelayMs  int
+	FallbackRetryMaxDelayMs   int
+}
+
+func (c *RouteConfig) AddRouteConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.RoutePolicy, "route-policy", "", "route policy, support weight and prefix")
+	flags.StringVar(&c.RouteConfigRaw, "route-config", "", "route config, include api key, base url, weight/prefix and fallback priority")
+	flags.IntVar(&c.RetryMaxCount, "retry-max-count", 0, "max retry count for internal routing on retryable errors")
+	flags.BoolVar(&c.FallbackRetryQueueEnabled, "fallback-retry-queue-enabled", false, "enable a retry queue that automatically retries fallback requests receiving 429 (Too Many Requests) with exponential backoff")
+	flags.IntVar(&c.FallbackRetryQueueSize, "fallback-retry-queue-size", 100, "max number of 429-retry tasks that can be queued; new tasks are dropped when full")
+	flags.IntVar(&c.FallbackRetryWorkerSize, "fallback-retry-worker-size", 10, "number of concurrent goroutines processing 429-retry tasks")
+	flags.IntVar(&c.FallbackRetryMaxCount, "fallback-retry-max-count", 3, "max number of 429 retries per request before giving up")
+	flags.IntVar(&c.FallbackRetryInitDelayMs, "fallback-retry-init-delay-ms", 500, "when a fallback endpoint returns 429, wait this many ms before the first retry; subsequent retries double this delay (exponential backoff)")
+	flags.IntVar(&c.FallbackRetryMaxDelayMs, "fallback-retry-max-delay-ms", 5000, "upper bound (ms) for the exponential backoff delay between 429 retries on fallback endpoints")
+}
+
+type PDDisaggConfig struct {
+	// The configuration of pd disaggregation
+	// LLM Gateway currently supports a variety of separate implementations of the prefill
+	// and decode phases, which can be distinguished by this configuration
+	PDDisaggProtocol string
+	// separate scheduling for p and d or not
+	SeparatePDScheduling bool
+}
+
+func (c *PDDisaggConfig) AddPDDisaggConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.PDDisaggProtocol, "pd-disagg-protocol", "", "pd disaggregation protocol, this configuration only takes effect under the pd-disagg policy, now support vllm-mooncake, vllm-kvt, sglang-mooncake")
+	flags.BoolVar(&c.SeparatePDScheduling, "separate-pd-scheduling", false, "Specify whether to separate pd scheduling")
+}
+
+type BatchServiceConfig struct {
+	BatchOSSPath           string
+	BatchOSSEndpoint       string
+	BatchParallel          int
+	BatchLinesPerShard     int
+	BatchRequestTimeout    time.Duration
+	BatchRequestRetryTimes int
+
+	BatchServiceRedisAddrs      string
+	BatchServiceRedisUsername   string
+	BatchServiceRedisPassword   string
+	BatchServiceRedisRetryTimes int
+}
+
+func (c *BatchServiceConfig) AddBatchServiceConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.BatchOSSPath, "batch-oss-path", "", "OSS path for batch API")
+	flags.StringVar(&c.BatchOSSEndpoint, "batch-oss-endpoint", "", "OSS endpoint (default is current region vpc endpoint)")
+	flags.StringVar(&c.BatchServiceRedisAddrs, "batch-redis-addrs", "redis.roles:10000", "Redis addresses for batch API")
+	flags.StringVar(&c.BatchServiceRedisUsername, "batch-redis-username", "default", "Redis username")
+	flags.StringVar(&c.BatchServiceRedisPassword, "batch-redis-password", "default", "Redis password")
+	flags.IntVar(&c.BatchServiceRedisRetryTimes, "batch-redis-retry-times", 3, "Redis retry times")
+
+	flags.IntVar(&c.BatchParallel, "batch-parallel", 8, "The parallel of shard process")
+	flags.IntVar(&c.BatchLinesPerShard, "batch-lines-per-shard", 1000, "The number of lines per shard file")
+	flags.DurationVar(&c.BatchRequestTimeout, "batch-request-timeout", 3*time.Minute, "HTTP request timeout duration")
+	flags.IntVar(&c.BatchRequestRetryTimes, "batch-request-retry-times", 3, "HTTP retry times")
+}
+
+type SchedulingBaseConfig struct {
+	// lite-mode scheduling: When not enabling full mode scheduling (lite-mode scheduling), llumnix does not
+	// intrusively modify inference engine, and only support basic load balance scheduling.
+	// In lite mode scheduling, LLM gateway collect update realtime request token states and report these data to
+	// LLM scheduler periodically. LLM scheduler perform load balance scheduling based on these local realtime states,
+	// supporting num-requests and num-tokens scheduling metric.
+	// full-mode scheduling: When enable full mode scheduling, llumnix intrusively modifies inference engine to
+	// collect accurate load information from inference engine and support kv cache migration, and therefore can
+	// support advanced scheduling feature like rescheduling, adaptive pd, etc.
+	EnableFullModeScheduling bool
+
+	SchedulingPolicy string
+}
+
+func (c *SchedulingBaseConfig) AddSchedulingBaseConfigFlags(flags *pflag.FlagSet) {
+	flags.BoolVar(&c.EnableFullModeScheduling, "enable-full-mode-scheduling", consts.DefaultEnableFullModeScheduling, "Enable full mode scheduling")
+	flags.StringVar(&c.SchedulingPolicy, "scheduling-policy", "load-balance", "scheduling policy, now support round-robin, load-balance, flood")
+}
+
+type LiteModeSchedulingConfig struct {
+	// request token state report (report to llm scheduler) interval (seconds)
+	RequestStateReportInterval int
+}
+
+func (c *LiteModeSchedulingConfig) AddLiteModeSchedulingConfigFlags(flags *pflag.FlagSet) {
+	flags.IntVar(&c.RequestStateReportInterval, "requests-report-duration", 0, "Specify requests reporter duration")
+}
+
+type FullModeSchedulingConfig struct {
+	// cms
+	CmsRedisHost              string
+	CmsRedisPort              string
+	CmsRedisUsername          string
+	CmsRedisPassword          string
+	CmsRedisSocketTimeout     float64
+	CmsRedisRetryTimes        int
+	CmsPullStatusIntervalMs   int32
+	CmsPullMetadataIntervalMs int32
+
+	// Kvs
+	EnableCacheAwareScheduling             bool
+	CacheAwareSchedulingMinTokens          int
+	KvsBackend                             string
+	KvsMetadataServiceConfigPath           string
+	KvsChunkSize                           int
+	KvsEnableSaveUnfullChunk               bool
+	KvsIrisMetaPrefix                      string
+	KvsVLLMBlockPrefix                     string
+	KvsRetryTimes                          int
+	KvsRetryIntervalMs                     int
+	KvsMetadataServiceDownDurationS        int
+	KvsMetadataServiceRedisClusterHosts    string
+	KvsMetadataServiceRedisClusterPassword string
+	KvsMetadataServiceHttpServerHost       string
+	KvsMetadataServiceHttpServerPort       string
+	KvsHashAlgo                            string
+
+	// schedule
+	DispatchTopK                        int
+	DispatchNeutralLoadMetric           string
+	DispatchNeutralLoadThreshold        float32
+	DispatchPrefillLoadMetric           string
+	DispatchPrefillLoadThreshold        float32
+	DispatchDecodeLoadMetric            string
+	DispatchDecodeLoadThreshold         float32
+	DispatchPrefillCacheLocalityMetric  string
+	EnableInstanceStatusLocalAccount    bool
+	RequestLocalAccountStalenessSeconds int32
+	AllowConcurrentScheduling           bool
+	EnablePredictorEnhancedScheduling   bool
+	MaxNumBatchedTokens                 int
+	NumPredictorWarmupSamples           int
+
+	// Slo
+	TtftProfilingDataPath       string
+	TpotProfilingDataPath       string
+	TtftSlo                     float32
+	TpotSlo                     float32
+	TtftSloDispatchThreshold    float32
+	TpotSloDispatchThreshold    float32
+	TpotMigrateOutCeilThreshold float32
+
+	// Adaptive PD
+	EnableAdaptivePD             bool
+	TpotMigrateOutFloorThreshold float32
+
+	// filter
+	FailoverDomain            string
+	InstanceStalenessSeconds int64
+
+	// rescheduling
+	EnableRescheduling               bool
+	ReschedulingPolicies             string
+	ReschedulingIntervalMs           int32
+	ReschedulingDecodeLoadMetric     string
+	ReschedulingDecodeLoadThreshold  float32
+	ReschedulingPrefillLoadMetric    string
+	ReschedulingNeutralLoadMetric    string
+	ReschedulingNeutralLoadThreshold float32
+	ReschedulingReqSelectOrder       string
+	ReschedulingReqSelectRule        string
+	ReschedulingReqSelectValue       float32
+	ReschedulingLoadBalanceThreshold float32
+	ReschedulingLoadBalanceScope     string
+
+	// llumlet
+	LlumletGrpcConnectionPoolSize int
+	LlumletGrpcTimeoutSeconds     int
+}
+
+func (c *FullModeSchedulingConfig) AddFullModeSchedulingConfigFlags(flags *pflag.FlagSet) {
+	flags.StringVar(&c.CmsRedisHost, "cms-redis-host", consts.DefaultCmsRedisHost, "Llumnix CMS redis host")
+	flags.StringVar(&c.CmsRedisPort, "cms-redis-port", consts.DefaultCmsRedisPort, "Llumnix CMS redis port")
+	flags.StringVar(&c.CmsRedisUsername, "cms-redis-username", consts.DefaultCmsRedisUsername, "Llumnix CMS redis username")
+	flags.StringVar(&c.CmsRedisPassword, "cms-redis-password", consts.DefaultCmsRedisPassword, "Llumnix CMS redis password")
+	flags.Float64Var(&c.CmsRedisSocketTimeout, "cms-redis-timeout", consts.DefaultCmsRedisSocketTimeout, "Llumnix CMS redis socket timeout")
+	flags.IntVar(&c.CmsRedisRetryTimes, "cms-redis-retry-times", consts.DefaultCmsRedisRetryTimes, "Llumnix CMS redis retry times")
+	flags.Int32Var(&c.CmsPullStatusIntervalMs, "cms-pull-status-interval-ms", consts.DefaultCmsPullStatusIntervalMs, "Llumnix CMS pull status interval in milliseconds")
+	flags.Int32Var(&c.CmsPullMetadataIntervalMs, "cms-pull-metadata-interval-ms", consts.DefaultCmsPullMetadataIntervalMs, "Llumnix CMS pull metadata interval in milliseconds")
+
+	flags.BoolVar(&c.EnableCacheAwareScheduling, "enable-cache-aware-scheduling", consts.DefaultEnableCacheAwareScheduling, "Llumnix enable cache aware scheduling")
+	flags.IntVar(&c.CacheAwareSchedulingMinTokens, "cache-aware-scheduling-min-tokens", consts.DefaultCacheAwareSchedulingMinTokens, "Llumnix cache aware scheduling min tokens")
+	flags.StringVar(&c.KvsBackend, "kvs-backend", consts.DefaultKvsBackend, "Llumnix KVS backend")
+	flags.StringVar(&c.KvsMetadataServiceConfigPath, "kvs-metadata-service-config-path", consts.DefaultKvsMetadataServiceConfigPath, "Llumnix KVS MetadataService config path")
+	flags.StringVar(&c.KvsHashAlgo, "kvs-hash-algo", consts.DefaultKvsHashAlgo, "Llumnix KVS hash algo")
+	flags.IntVar(&c.KvsChunkSize, "kvs-chunk-size", consts.DefaultKvsChunkSize, "Llumnix KVS chunk size")
+	flags.BoolVar(&c.KvsEnableSaveUnfullChunk, "kvs-enable-save-unfull-chunk", consts.DefaultKvsEnableSaveUnfullChunk, "Llumnix KVS enable save unfull chunk")
+	flags.StringVar(&c.KvsIrisMetaPrefix, "kvs-iris-meta-prefix", consts.DefaultKvsIrisMetaPrefix, "Llumnix KVS iris meta prefix")
+	flags.StringVar(&c.KvsVLLMBlockPrefix, "kvs-vllm-block-prefix", consts.DefaultKvsVLLMBlockPrefix, "Llumnix KVS vllm block prefix")
+	flags.IntVar(&c.KvsRetryIntervalMs, "kvs-retry-interval-ms", consts.DefaultKvsRetryIntervalMs, "Llumnix KVS retry interval in milliseconds")
+	flags.IntVar(&c.KvsRetryTimes, "kvs-retry-times", consts.DefaultKvsRetryTimes, "Llumnix KVS retry times")
+	flags.IntVar(&c.KvsMetadataServiceDownDurationS, "kvs-metadata-service-down-duration-s", consts.DefaultKvsMetadataServiceDownDurationS, "Llumnix KVS metadata service down duration in seconds")
+	flags.StringVar(&c.KvsMetadataServiceRedisClusterHosts, "kvs-metadata-service-redis-cluster-hosts", consts.DefaultKvsMetadataServiceRedisClusterHosts, "Llumnix KVS metadata service redis cluster hosts")
+	flags.StringVar(&c.KvsMetadataServiceRedisClusterPassword, "kvs-metadata-service-redis-cluster-password", consts.DefaultKvsMetadataServiceRedisClusterPassword, "Llumnix KVS metadata service redis cluster password")
+	flags.StringVar(&c.KvsMetadataServiceHttpServerHost, "kvs-metadata-service-http-server-host", consts.DefaultKvsMetadataServiceHttpServerHost, "Llumnix KVS metadata service http server host")
+	flags.StringVar(&c.KvsMetadataServiceHttpServerPort, "kvs-metadata-service-http-server-port", consts.DefaultKvsMetadataServiceHttpServerPort, "Llumnix KVS metadata service http server port")
+
+	flags.IntVar(&c.DispatchTopK, "dispatch-top-k", consts.DefaultDispatchTopK, "Llumnix dispatch top K")
+	flags.StringVar(&c.DispatchNeutralLoadMetric, "dispatch-neutral-load-metric", consts.DefaultDispatchNeutralLoadMetric, "Llumnix dispatch neutral load metric")
+	flags.Float32Var(&c.DispatchNeutralLoadThreshold, "dispatch-neutral-load-threshold", consts.DefaultDispatchNeutralLoadThreshold, "Llumnix dispatch neutral load threshold")
+	flags.StringVar(&c.DispatchPrefillLoadMetric, "dispatch-prefill-load-metric", consts.DefaultDispatchPrefillLoadMetric, "Llumnix dispatch prefill load metric")
+	flags.Float32Var(&c.DispatchPrefillLoadThreshold, "dispatch-prefill-load-threshold", consts.DefaultDispatchPrefillLoadThreshold, "Llumnix dispatch prefill load threshold")
+	flags.StringVar(&c.DispatchDecodeLoadMetric, "dispatch-decode-load-metric", consts.DefaultDispatchDecodeLoadMetric, "Llumnix dispatch decode load metric")
+	flags.Float32Var(&c.DispatchDecodeLoadThreshold, "dispatch-decode-load-threshold", consts.DefaultDispatchDecodeLoadThreshold, "Llumnix dispatch decode load threshold")
+	flags.StringVar(&c.DispatchPrefillCacheLocalityMetric, "dispatch-prefill-cache-locality-metric", consts.DefaultDispatchPrefillCacheLocalityMetric, "Llumnix dispatch prefill cache locality metric")
+	flags.BoolVar(&c.EnableInstanceStatusLocalAccount, "enable-instance-status-local-account", consts.DefaultEnableInstanceStatusLocalAccount, "Llumnix enable instance status local account")
+	flags.Int32Var(&c.RequestLocalAccountStalenessSeconds, "request-local-account-staleness-seconds", consts.DefaultRequestLocalAccountStalenessSeconds, "Llumnix request local account staleness seconds")
+	flags.BoolVar(&c.AllowConcurrentScheduling, "allow-concurrent-scheduling", consts.DefaultAllowConcurrentScheduling, "Llumnix allow concurrent scheduling")
+	flags.BoolVar(&c.EnablePredictorEnhancedScheduling, "enable-predictor-enhanced-scheduling", consts.DefaultEnablePredictorEnhancedScheduling, "Llumnix enable predictor enhanced scheduling")
+	flags.IntVar(&c.MaxNumBatchedTokens, "max-num-batched-tokens", consts.DefaultMaxNumBatchedTokens, "Llumnix max num batched tokens")
+	flags.IntVar(&c.NumPredictorWarmupSamples, "num-predictor-warmup-samples", consts.DefaultNumPredictorWarmupSamples, "Llumnix num predictor warmup samples")
+
+	flags.StringVar(&c.TtftProfilingDataPath, "ttft-profiling-data-path", "", "Llumnix ttft profiling data path")
+	flags.Float32Var(&c.TtftSlo, "ttft-slo", consts.DefaultTtftSlo, "Llumnix ttft slo")
+	flags.Float32Var(&c.TtftSloDispatchThreshold, "ttft-slo-dispatch-threshold", consts.DefaultTtftSloDispatchThreshold, "Llumnix ttft slo dispatch threshold")
+	flags.StringVar(&c.TpotProfilingDataPath, "tpot-profiling-data-path", "", "Llumnix tpot profiling data path")
+	flags.Float32Var(&c.TpotSlo, "tpot-slo", consts.DefaultTpotSlo, "Llumnix tpot slo")
+	flags.Float32Var(&c.TpotSloDispatchThreshold, "tpot-slo-dispatch-threshold", consts.DefaultTpotSloDispatchThreshold, "Llumnix tpot slo dispatch threshold")
+	flags.Float32Var(&c.TpotMigrateOutCeilThreshold, "tpot-migrate-out-ceil-threshold", consts.DefaultTpotMigrateOutCeilThreshold, "Llumnix tpot migrate out ceil threshold")
+
+	flags.BoolVar(&c.EnableAdaptivePD, "enable-adaptive-pd", consts.DefaultEnableAdaptivePD, "Llumnix enable adaptive pd")
+	flags.Float32Var(&c.TpotMigrateOutFloorThreshold, "tpot-migrate-out-floor-threshold", consts.DefaultTpotMigrateOutFloorThreshold, "Llumnix tpot migrate out floor threshold")
+
+	flags.StringVar(&c.FailoverDomain, "failover-domain", consts.DefaultFailoverDomain, "Llumnix failover domain")
+	flags.Int64Var(&c.InstanceStalenessSeconds, "instance-staleness-seconds", consts.DefaultInstanceStalenessSeconds, "Llumnix instance staleness seconds")
+
+	flags.BoolVar(&c.EnableRescheduling, "enable-rescheduling", consts.DefaultEnableRescheduling, "Llumnix enable rescheduling")
+	flags.StringVar(&c.ReschedulingPolicies, "rescheduling-policies", consts.DefaultReschedulingPolicies, "Llumnix rescheduling policies, comma separated")
+	flags.Int32Var(&c.ReschedulingIntervalMs, "rescheduling-interval-ms", consts.DefaultReschedulingIntervalMs, "Llumnix rescheduling interval milliseconds")
+	flags.StringVar(&c.ReschedulingDecodeLoadMetric, "rescheduling-decode-load-metric", consts.DefaultReschedulingDecodeLoadMetric, "Llumnix rescheduling decode load metric")
+	flags.Float32Var(&c.ReschedulingDecodeLoadThreshold, "rescheduling-decode-load-threshold", consts.DefaultReschedulingDecodeLoadThreshold, "Llumnix rescheduling decode load threshold")
+	flags.StringVar(&c.ReschedulingPrefillLoadMetric, "rescheduling-prefill-load-metric", consts.DefaultReschedulingPrefillLoadMetric, "Llumnix rescheduling prefill load metric")
+	flags.StringVar(&c.ReschedulingNeutralLoadMetric, "rescheduling-neutral-load-metric", consts.DefaultReschedulingNeutralLoadMetric, "Llumnix rescheduling neutral load metric")
+	flags.Float32Var(&c.ReschedulingNeutralLoadThreshold, "rescheduling-neutral-load-threshold", consts.DefaultReschedulingNeutralLoadThreshold, "Llumnix rescheduling neutral load threshold")
+	flags.StringVar(&c.ReschedulingReqSelectOrder, "rescheduling-req-select-order", consts.DefaultReschedulingReqSelectOrder, "Llumnix rescheduling req selection order")
+	flags.StringVar(&c.ReschedulingReqSelectRule, "rescheduling-req-select-rule", consts.DefaultReschedulingReqSelectRule, "Llumnix rescheduling req selection rule")
+	flags.Float32Var(&c.ReschedulingReqSelectValue, "rescheduling-req-select-value", consts.DefaultReschedulingReqSelectValue, "Llumnix rescheduling req selection value")
+	flags.Float32Var(&c.ReschedulingLoadBalanceThreshold, "rescheduling-load-balance-threshold", consts.DefaultReschedulingLoadBalanceThreshold, "Llumnix rescheduling load balance threshold")
+	flags.StringVar(&c.ReschedulingLoadBalanceScope, "rescheduling-load-balance-scope", consts.DefaultReschedulingLoadBalanceScope, "Llumnix rescheduling load balance scope")
+
+	flags.IntVar(&c.LlumletGrpcConnectionPoolSize, "llumlet-grpc-connection-pool-size", consts.DefaultLlumletGrpcConnectionPoolSize, "Llumnix llumlet grpc connection pool size")
+	flags.IntVar(&c.LlumletGrpcTimeoutSeconds, "llumlet-grpc-timeout-seconds", consts.DefaultLlumletGrpcTimeoutSeconds, "Llumnix llumlet grpc timeout seconds")
+}
+
+// safeSplitArgs safely splits a string by comma, handling quotes and square brackets.
+// Example: "a=1,b=[1,2,3],c='hello,world'" -> ["a=1", "b=[1,2,3]", "c='hello,world'"]
+func safeSplitArgs(input string) []string {
+	if input == "" {
+		return nil
+	}
+
+	var result []string
+	var current strings.Builder
+	var inQuote rune     // 0 if not in quote, otherwise the quote char (' or ")
+	var bracketDepth int // Track nesting depth of square brackets
+
+	for i, ch := range input {
+		// Handle escape sequences
+		if i > 0 && input[i-1] == '\\' {
+			current.WriteRune(ch)
+			continue
+		}
+
+		// Handle quotes
+		if (ch == '\'' || ch == '"') && bracketDepth == 0 {
+			if inQuote == 0 {
+				inQuote = ch
+			} else if inQuote == ch {
+				inQuote = 0
+			}
+			current.WriteRune(ch)
+			continue
+		}
+
+		// Skip processing if inside quotes
+		if inQuote != 0 {
+			current.WriteRune(ch)
+			continue
+		}
+
+		// Handle square brackets
+		if ch == '[' {
+			bracketDepth++
+			current.WriteRune(ch)
+			continue
+		}
+
+		if ch == ']' {
+			if bracketDepth > 0 {
+				bracketDepth--
+			}
+			current.WriteRune(ch)
+			continue
+		}
+
+		// Handle comma separator (only when not in quotes or brackets)
+		if ch == ',' && bracketDepth == 0 {
+			if current.Len() > 0 {
+				result = append(result, strings.TrimSpace(current.String()))
+				current.Reset()
+			}
+			continue
+		}
+
+		current.WriteRune(ch)
+	}
+
+	// Add the last segment
+	if current.Len() > 0 {
+		result = append(result, strings.TrimSpace(current.String()))
+	}
+
+	// Remove surrounding quotes from each segment
+	for i, segment := range result {
+		// Split by first '=' to check if it's a key=value pair
+		parts := strings.SplitN(segment, "=", 2)
+		if len(parts) == 2 {
+			value := parts[1]
+			// Remove quotes (not brackets)
+			if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+				result[i] = parts[0] + "=" + value[1:len(value)-1]
+			} else if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+				result[i] = parts[0] + "=" + value[1:len(value)-1]
+			}
+		}
+	}
+
+	return result
+}
+
+// ParseLlumnixExtraArgs parses llumnix-extra-args and overrides corresponding flag values.
+// Supports two formats for array values:
+//   - Quoted strings: key='value1,value2' -> parsed as: key=value1,value2 (quotes removed)
+//   - Bracket arrays: key=[value1,value2] -> parsed as: key=[value1,value2] (brackets kept)
+//
+// Example: "dispatch-top-k=5,policies=[p1,p2],timeout='10,20'" ->
+//
+//	"dispatch-top-k=5", "policies=[p1,p2]", "timeout=10,20"
+func ParseLlumnixExtraArgs(flags *pflag.FlagSet, extraArgs string) {
+	if extraArgs == "" {
+		return
+	}
+
+	klog.Infof("Parsing extra-args: %s", extraArgs)
+
+	// Use safeSplitArgs to safely split by comma, handling quotes, brackets and arrays
+	args := safeSplitArgs(extraArgs)
+
+	for _, arg := range args {
+		if arg == "" {
+			continue
+		}
+
+		// Split by first '=' to get key-value pair
+		parts := strings.SplitN(arg, "=", 2)
+		if len(parts) != 2 {
+			klog.Warningf("Invalid extra arg format (expected key=value): %s", arg)
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		// Try to set the flag value
+		flag := flags.Lookup(key)
+		if flag == nil {
+			klog.Warningf("Flag not found, skipping: %s", key)
+			continue
+		}
+
+		if err := flags.Set(key, value); err != nil {
+			klog.Warningf("Failed to set flag %s=%s: %v", key, value, err)
+			continue
+		}
+
+		klog.Infof("Successfully set flag from extra-args: %s=%s", key, value)
+	}
+}

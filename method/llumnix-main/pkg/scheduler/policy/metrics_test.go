@@ -1,0 +1,292 @@
+package policy
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"llumnix/pkg/consts"
+)
+
+func TestBaseMetric(t *testing.T) {
+	metric := &baseMetric{
+		name:  "test",
+		value: 37.0,
+	}
+	assert.Equal(t, "test", metric.GetName())
+	assert.Equal(t, float32(37.0), metric.GetValue())
+}
+func TestInstanceSchedulingMetric_Equal(t *testing.T) {
+	tests := []struct {
+		name     string
+		metric1  instanceSchedulingMetric
+		metric2  instanceSchedulingMetric
+		expected bool
+	}{
+		{
+			name:     "baseMetric - equal metrics with same value",
+			metric1:  &baseMetric{name: "cpu", value: 0.5},
+			metric2:  &baseMetric{name: "cpu", value: 0.5},
+			expected: true,
+		},
+		{
+			name:     "baseMetric - not equal positive vs negative",
+			metric1:  &baseMetric{name: "cpu", value: 1.5},
+			metric2:  &baseMetric{name: "cpu", value: -1.5},
+			expected: false,
+		},
+		{
+			name: "kvCacheUsageRatioProjected - equal metrics with same value",
+			metric1: &kvCacheUsageRatioProjected{
+				baseMetric: baseMetric{name: "kvCache", value: 0.5},
+			},
+			metric2: &kvCacheUsageRatioProjected{
+				baseMetric: baseMetric{name: "kvCache", value: 0.5},
+			},
+			expected: true,
+		},
+		{
+			name: "kvCacheUsageRatioProjected - not equal different values",
+			metric1: &kvCacheUsageRatioProjected{
+				baseMetric: baseMetric{name: "kvCache", value: 0.3},
+			},
+			metric2: &kvCacheUsageRatioProjected{
+				baseMetric: baseMetric{name: "kvCache", value: 0.7},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.metric1.Equal(tt.metric2)
+			if result != tt.expected {
+				t.Errorf("Equal() = %v, expected %v (metric1: %v, metric2: %v)",
+					result, tt.expected, tt.metric1.GetValue(), tt.metric2.GetValue())
+			}
+		})
+	}
+}
+
+func TestKVCacheUsageRatioProjectedCalculate(t *testing.T) {
+	metric := &kvCacheUsageRatioProjected{
+		baseMetric{
+			name: consts.SchedulingMetricKVCacheUsageRatioProjected,
+		},
+	}
+
+	instances := genInstanceViewInternals()
+	instance1 := instances["instance-1"]
+	instance1.cmsView.Status.NumTotalGpuTokens = 100
+	instance1.cmsView.Status.NumUsedGpuTokens = 30
+	instance1.cmsView.Status.NumUncomputedTokensAllWaitingPrefills = 10
+
+	// Test normal case
+	metric.Calculate(nil, instance1)
+	assert.Equal(t, float32(0.4), metric.GetValue()) // (30 + 10) / 100 = 0.4
+
+	// Test with zero total tokens
+	instance2 := instances["instance-2"]
+	instance2.cmsView.Status.NumTotalGpuTokens = 0
+	instance2.cmsView.Status.NumUsedGpuTokens = 30
+	metric.Calculate(nil, instance2)
+	assert.Equal(t, float32(3.4028235e+38), metric.GetValue()) // MaxFloat32
+
+	// Test with zero used and waiting tokens
+	instance3 := instances["instance-2"]
+	instance3.cmsView.Status.NumTotalGpuTokens = 100
+	instance3.cmsView.Status.NumUsedGpuTokens = 0
+	instance3.cmsView.Status.NumUncomputedTokensAllWaitingPrefills = 0
+	metric.Calculate(nil, instance2)
+	assert.Equal(t, float32(0.0), metric.GetValue()) // (0 + 0) / 100 = 0.0
+}
+
+func TestKVCacheUsageRatioProjectedLess(t *testing.T) {
+	metric1 := &kvCacheUsageRatioProjected{
+		baseMetric{
+			name:  consts.SchedulingMetricKVCacheUsageRatioProjected,
+			value: 0.1,
+		},
+	}
+
+	metric2 := &kvCacheUsageRatioProjected{
+		baseMetric{
+			name:  consts.SchedulingMetricKVCacheUsageRatioProjected,
+			value: 0.2,
+		},
+	}
+
+	assert.True(t, metric1.ValueLess(metric2.GetValue()))
+	assert.False(t, metric2.ValueLess(metric1.GetValue()))
+}
+
+func TestDecodeBatchSizeCalculate(t *testing.T) {
+	metric := &decodeBatchSize{
+		baseMetric{
+			name: consts.SchedulingMetricDecodeBatchSize,
+		},
+	}
+
+	instances := genInstanceViewInternals()
+	instance1 := instances["instance-1"]
+	instance1.cmsView.Status.NumTotalGpuTokens = 100
+	instance1.cmsView.Status.NumUsedGpuTokens = 30
+	instance1.cmsView.Status.NumUncomputedTokensAllWaitingPrefills = 10
+	instance1.cmsView.Status.SchedulerRunningToDecodeRequestsNum = 10
+
+	metric.Calculate(nil, instance1)
+	assert.Equal(t, float32(10.0), metric.GetValue()) // (0 + 0) / 100 = 0.0
+}
+
+func TestDecodeBatchSizeLess(t *testing.T) {
+	metric1 := &decodeBatchSize{
+		baseMetric{
+			name:  consts.SchedulingMetricDecodeBatchSize,
+			value: 1.0,
+		},
+	}
+
+	metric2 := &decodeBatchSize{
+		baseMetric{
+			name:  consts.SchedulingMetricDecodeBatchSize,
+			value: 2.0,
+		},
+	}
+
+	assert.True(t, metric1.ValueLess(metric2.GetValue()))
+	assert.False(t, metric2.ValueLess(metric1.GetValue()))
+}
+
+func TestNumWaitingRequestsCalculate(t *testing.T) {
+	metric := &numWaitingRequests{
+		baseMetric{
+			name: consts.SchedulingMetricNumWaitingRequests,
+		},
+	}
+
+	instances := genInstanceViewInternals()
+	instance1 := instances["instance-1"]
+	instance1.cmsView.Status.NumTotalGpuTokens = 100
+	instance1.cmsView.Status.NumUsedGpuTokens = 30
+	instance1.cmsView.Status.NumUncomputedTokensAllWaitingPrefills = 10
+	instance1.cmsView.Status.NumWaitingRequests = 10
+
+	metric.Calculate(nil, instance1)
+	assert.Equal(t, float32(10.0), metric.GetValue())
+}
+
+func TestNumWaitingRequestsLess(t *testing.T) {
+	metric1 := &numWaitingRequests{
+		baseMetric{
+			name:  consts.SchedulingMetricNumWaitingRequests,
+			value: 1.0,
+		},
+	}
+
+	metric2 := &numWaitingRequests{
+		baseMetric{
+			name:  consts.SchedulingMetricNumWaitingRequests,
+			value: 2.0,
+		},
+	}
+
+	assert.True(t, metric1.ValueLess(metric2.GetValue()))
+	assert.False(t, metric2.ValueLess(metric1.GetValue()))
+}
+
+func TestNumRequestsCalculate(t *testing.T) {
+	metric := &numRequests{
+		baseMetric{
+			name: consts.SchedulingMetricNumRequests,
+		},
+		true,
+	}
+
+	instances := genInstanceViewInternals()
+	instance1 := instances["instance-1"]
+	instance1.cmsView.Status.NumTotalGpuTokens = 100
+	instance1.cmsView.Status.NumUsedGpuTokens = 30
+	instance1.cmsView.Status.NumUncomputedTokensAllWaitingPrefills = 10
+	instance1.cmsView.Status.NumWaitingRequests = 10
+	instance1.cmsView.Status.NumRunningRequests = 10
+
+	metric.Calculate(nil, instance1)
+	assert.Equal(t, float32(20.0), metric.GetValue())
+}
+
+func TestNumRequestsLess(t *testing.T) {
+	metric1 := &numRequests{
+		baseMetric{
+			name:  consts.SchedulingMetricNumRequests,
+			value: 1.0,
+		},
+		true,
+	}
+
+	metric2 := &numWaitingRequests{
+		baseMetric{
+			name:  consts.SchedulingMetricKVCacheUsageRatioProjected,
+			value: 2.0,
+		},
+	}
+
+	assert.True(t, metric1.ValueLess(metric2.GetValue()))
+	assert.False(t, metric2.ValueLess(metric1.GetValue()))
+}
+
+func TestKVCacheHitLen(t *testing.T) {
+	metric := &kvCacheHitLen{
+		baseMetric: baseMetric{
+			name: consts.SchedulingMetricKVCacheHitLen,
+		},
+	}
+
+	instances := genInstanceViewInternals()
+
+	// Test normal case
+	instance1 := instances["instance-1"]
+	instance1.schedulingCtx.prefixHitTokens = 100
+	metric.Calculate(nil, instance1)
+	assert.Equal(t, float32(100), metric.GetValue())
+
+	// Test another case with different prefixHitTokens
+	instance2 := instances["instance-2"]
+	instance2.schedulingCtx.prefixHitTokens = 50
+	metric.Calculate(nil, instance2)
+	assert.Equal(t, float32(50), metric.GetValue())
+
+	// Test Less function
+	t.Run("test Less function", func(t *testing.T) {
+		metric1 := &kvCacheHitLen{
+			baseMetric: baseMetric{
+				name:  consts.SchedulingMetricKVCacheHitLen,
+				value: 100,
+			},
+		}
+
+		metric2 := &kvCacheHitLen{
+			baseMetric: baseMetric{
+				name:  consts.SchedulingMetricKVCacheHitLen,
+				value: 50,
+			},
+		}
+
+		// metric1(100) > metric2(50), so metric1 should be preferred
+		assert.True(t, metric1.Less(metric2))
+		// metric2(50) < metric1(100), so metric2 should not be preferred
+		assert.False(t, metric2.Less(metric1))
+	})
+
+	// Test ValueLess function
+	t.Run("test ValueLess function", func(t *testing.T) {
+		metric := &kvCacheHitLen{
+			baseMetric: baseMetric{
+				value: 100,
+			},
+		}
+		// 100 > 50, so 100 should be preferred over 50
+		assert.True(t, metric.ValueLess(50))
+		// 100 < 150, so 100 should not be preferred over 150
+		assert.False(t, metric.ValueLess(150))
+	})
+}

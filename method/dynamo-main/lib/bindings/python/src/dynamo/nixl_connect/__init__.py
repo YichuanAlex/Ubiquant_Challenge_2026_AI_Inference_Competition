@@ -1,0 +1,1996 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import ctypes
+import logging
+import socket
+import threading
+import time
+import uuid
+import zlib
+from abc import ABC, abstractmethod
+from enum import IntEnum
+from functools import cached_property
+from typing import Any, List, Optional
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+try:
+    import torch
+except ImportError as e:
+    raise ImportError(
+        "PyTorch must be installed to use this module. Please install PyTorch, ex: 'pip install torch'."
+    ) from e
+
+try:
+    import nixl._api as nixl_api
+    import nixl._bindings as nixl_bindings
+except ImportError as e:
+    raise ImportError(
+        "NIXL Python bindings must be installed to use this module. Please install NIXL, ex: 'pip install nixl'."
+    ) from e
+
+logger = logging.getLogger(__name__)
+
+try:
+    import cupy as array_module
+    from cupy_backends.cuda.api.runtime import CUDARuntimeError
+
+    logger.info("dynamo.nixl_connect: Utilizing CuPy to enable GPU acceleration.")
+except ImportError:
+    try:
+        import numpy as array_module
+
+        logger.warning(
+            "dynamo.nixl_connect: Failed to load CuPy for GPU acceleration, utilizing numpy to provide CPU based operations."
+        )
+    except ImportError as e:
+        raise ImportError("Numpy or CuPy must be installed to use this module.") from e
+
+
+class AbstractOperation(ABC):
+    """
+    Abstract base class for awaitable NIXL based RDMA operations.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        operation_kind: OperationKind,
+        local_descriptors: Descriptor | list[Descriptor],
+        remote_descriptors: Optional[Descriptor | list[Descriptor]],
+        notification_key: Optional[str],
+    ) -> None:
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if (
+            operation_kind is not OperationKind.READ
+            and operation_kind is not OperationKind.WRITE
+        ):
+            raise ValueError(
+                "Argument `operation_kind` must be either `READ` or `WRITE`."
+            )
+        if not (
+            isinstance(local_descriptors, (Descriptor, list))
+            or (
+                isinstance(local_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in local_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `local_descriptors` must be `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`."
+            )
+        if remote_descriptors is not None and not (
+            isinstance(remote_descriptors, Descriptor)
+            or (
+                isinstance(remote_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in remote_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `remote_descriptors` must be `dynamo.nixl_connect.Descriptor`, `list[dynamo.nixl_connect.Descriptor]`, or `None`."
+            )
+        if isinstance(local_descriptors, list) and len(local_descriptors) == 0:
+            raise ValueError("Argument `local_descriptors` must not be an empty list.")
+        if (
+            remote_descriptors is not None
+            and isinstance(remote_descriptors, list)
+            and len(remote_descriptors) == 0
+        ):
+            raise ValueError("Argument `remote_descriptors` must not be an empty list.")
+
+        notification_key = (
+            str(uuid.uuid4()) if notification_key is None else notification_key
+        )
+        if not isinstance(notification_key, str):
+            raise TypeError("Argument `notification_key` must be `str` or `None`.")
+        if len(notification_key) == 0:
+            raise ValueError("Argument `notification_key` must not be an empty string.")
+
+        self._notification_key: str = (
+            "" if notification_key is None else notification_key
+        )
+        self._connection: Connection = connection
+        self._operation_kind: OperationKind = operation_kind
+        self._local_desc_list: Descriptor | list[Descriptor] = local_descriptors
+        self._local_desc_tlist: Optional[list[tuple[int, int, int]]] = None
+        self._local_device_kind: DeviceKind = DeviceKind.UNSPECIFIED
+        self._remote_desc_list: Optional[Descriptor | list[Descriptor]] = (
+            None if remote_descriptors is None else remote_descriptors
+        )
+        self._remote_desc_tlist: Optional[list[tuple[int, int, int]]] = None
+        self._remote_device_kind: DeviceKind = DeviceKind.UNSPECIFIED
+
+        # Register local descriptors with NIXL.
+        # Note: Only local descriptors should be registered with NIXL,
+        if isinstance(local_descriptors, list):
+            for d in local_descriptors:
+                d.register_with_connector(self._connection)
+                logger.debug(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: Registered descriptor {d} with connector {self._connection}."
+                )
+        else:
+            local_descriptors.register_with_connector(self._connection)
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Registered descriptor {local_descriptors} with connector {self._connection}."
+            )
+
+        # Record local descriptors.
+        device_kind, desc_tlist = self._create_desc_tlist(local_descriptors)
+        self._local_desc_tlist = desc_tlist
+        self._local_device_kind = device_kind
+
+        # Record remote descriptors when provided.
+        if remote_descriptors is not None:
+            device_kind, desc_tlist = self._create_desc_tlist(remote_descriptors)
+            self._remote_desc_tlist = desc_tlist
+            self._remote_device_kind = device_kind
+
+    def __del__(self) -> None:
+        self._release()
+
+    def __enter__(self) -> AbstractOperation:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        self._release()
+
+    def _release(self) -> None:
+        """
+        Private method to release resources.
+        """
+        # Deregister local descriptors from NIXL, allowing them to reused by a future operation.
+        if isinstance(self._local_desc_list, list):
+            for d in self._local_desc_list:
+                if d.is_registered:
+                    d.deregister_with_connector(self._connection)
+                else:
+                    logger.debug(
+                        f"dynamo.nixl_connect.{self.__class__.__name__}: Descriptor {d} was not registered, skipping deregistration."
+                    )
+        else:
+            if self._local_desc_list.is_registered:
+                self._local_desc_list.deregister_with_connector(self._connection)
+            else:
+                logger.debug(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: Descriptor {self._local_desc_list} was not registered, skipping deregistration."
+                )
+
+    @property
+    def connection(self) -> Connection:
+        """
+        Gets the local connection associated with this operation.
+        """
+        return self._connection
+
+    @property
+    def operation_kind(self) -> OperationKind:
+        """
+        Gets the kind of operation.
+        """
+        return self._operation_kind
+
+    @abstractmethod
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        raise NotImplementedError("Abstract method not implemented by derived class.")
+
+    # Private Methods
+
+    def _create_desc_tlist(
+        self,
+        descriptors: Descriptor | list[Descriptor],
+    ) -> tuple[DeviceKind, list[tuple[int, int, int]]]:
+        """
+        Helper function to create a list of tuples (ptr, size, device) from descriptors.
+        """
+        descriptor_tuples: list[tuple[int, int, int]] = []
+        device_kind: DeviceKind = DeviceKind.UNSPECIFIED
+        if isinstance(descriptors, list):
+            device_kind = descriptors[0].device.kind
+            for desc in descriptors:
+                if device_kind != desc.device.kind:
+                    raise ValueError(
+                        "All local descriptors must have the same memory type."
+                    )
+                descriptor_tuples.append((desc.ptr, desc.size, desc.device.id))
+        else:
+            device_kind = descriptors.device.kind
+            descriptor_tuples.append(
+                (descriptors.ptr, descriptors.size, descriptors.device.id)
+            )
+        return (device_kind, descriptor_tuples)
+
+
+class ActiveOperation(AbstractOperation):
+    """
+    Abstract class for active operations that initiates a NIXL based RDMA transfer based `RdmaMetadata`
+    provided by the remote worker's corresponding `PassiveOperation`.
+    """
+
+    def __init__(
+        self,
+        remote: Remote,
+        operation_kind: OperationKind,
+        local_descriptors: Descriptor | list[Descriptor],
+        remote_descriptors: Descriptor | list[Descriptor],
+        notification_key: str,
+    ) -> None:
+        if not isinstance(remote, Remote) or remote._connection is None:
+            raise TypeError(
+                "Argument `remote` must be valid `dynamo.nixl_connect.Remote`."
+            )
+        if not isinstance(operation_kind, OperationKind):
+            raise TypeError(
+                "Argument `operation_kind` must `dynamo.nixl_connect.OperationKind`."
+            )
+        if (
+            operation_kind is not OperationKind.READ
+            and operation_kind is not OperationKind.WRITE
+        ):
+            raise ValueError(
+                "Argument `operation_kind` must be either `READ` or `WRITE`."
+            )
+        if not (
+            isinstance(local_descriptors, Descriptor)
+            or (
+                isinstance(local_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in local_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `local_descriptors` must be `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`."
+            )
+        if not (
+            isinstance(remote_descriptors, Descriptor)
+            or (
+                isinstance(remote_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in remote_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `remote_descriptors` must be `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`."
+            )
+
+        # Unpack single descriptors from lists if they are provided as single descriptors.
+        if isinstance(local_descriptors, list) and len(local_descriptors) == 1:
+            local_descriptors = local_descriptors[0]
+        if isinstance(remote_descriptors, list) and len(remote_descriptors) == 1:
+            remote_descriptors = remote_descriptors[0]
+
+        if isinstance(local_descriptors, list) != isinstance(remote_descriptors, list):
+            raise ValueError(
+                "Both `local_descriptors` and `remote_descriptors` must be either lists or single descriptors."
+            )
+        # Ensure that the descriptors are of the same size here to avoid confusing errors from NIXL.
+        if isinstance(local_descriptors, list) and isinstance(remote_descriptors, list):
+            if len(local_descriptors) != len(remote_descriptors):
+                raise ValueError(
+                    f"When `local_descriptors` and `remote_descriptors` are lists, they must have the same length. {len(local_descriptors)} != {len(remote_descriptors)}."
+                )
+            for i in range(len(local_descriptors)):
+                if local_descriptors[i].size != remote_descriptors[i].size:
+                    raise ValueError(
+                        f"Descriptor length mismatch: `local_descriptors` and `remote_descriptors` descriptor at {i} must have the same size. {local_descriptors[i].size} != {remote_descriptors[i].size}."
+                    )
+        elif (
+            isinstance(local_descriptors, Descriptor)
+            and isinstance(remote_descriptors, Descriptor)
+        ) and local_descriptors.size != remote_descriptors.size:
+            raise ValueError(
+                f"Local and remote descriptors must be the same size. {local_descriptors.size} != {remote_descriptors.size}."
+            )
+        if not isinstance(notification_key, str):
+            raise TypeError("Argument `notification_key` must be `str`.")
+        if len(notification_key) == 0:
+            raise ValueError("Argument `notification_key` must not be an empty string.")
+
+        self._remote = remote
+        self._status = OperationStatus.UNINITIALIZED
+
+        super().__init__(
+            remote.connection,
+            operation_kind,
+            local_descriptors,
+            remote_descriptors,
+            notification_key,
+        )
+        # Quick check to ensure remote descriptors are not None to make static analysis happy.
+        if self._local_desc_tlist is None or self._remote_desc_tlist is None:
+            raise RuntimeError("NIXL descriptor list(s) not bound to operation.")
+
+        self._local_xfer_descs: Optional[nixl_bindings.nixlXferDList] = None
+        self._remote_xfer_descs: Optional[nixl_bindings.nixlXferDList] = None
+        self._xfer_hndl: Optional[nixl_api.nixl_xfer_handle] = None
+
+        self._local_xfer_descs = self._connection._nixl.get_xfer_descs(
+            descs=self._local_desc_tlist,
+            mem_type=str(self._local_device_kind),
+        )
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created local NIXL transfer descriptors: {self._local_xfer_descs}"
+        )
+        self._remote_xfer_descs = self._connection._nixl.get_xfer_descs(
+            descs=self._remote_desc_tlist,
+            mem_type=str(self._remote_device_kind),
+        )
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created remote NIXL transfer descriptors: {self._remote_xfer_descs}"
+        )
+        self._xfer_hndl = self._connection._nixl.initialize_xfer(
+            operation=str(operation_kind),
+            local_descs=self._local_xfer_descs,
+            remote_descs=self._remote_xfer_descs,
+            remote_agent=self._remote.name,
+            notif_msg=self._notification_key.encode("utf-8"),
+        )
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created NIXL transfer handle: {self._xfer_hndl}"
+        )
+
+    def __del__(self) -> None:
+        super().__del__()
+        self._release()
+
+    def __enter__(self) -> ActiveOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        match self.status:
+            case OperationStatus.IN_PROGRESS | OperationStatus.INITIALIZED:
+                self._status = OperationStatus.CANCELLED
+
+        self._release()
+
+    def __repr__(self) -> str:
+        return str(
+            f"{self.__class__.__name__}("
+            f"operation_kind={self._operation_kind}, "
+            f"local_descriptors={self._local_desc_list}, "
+            f"remote_descriptors={self._remote_desc_list}, "
+            f"notification_key='{self._notification_key}', "
+            f"remote='{self._remote.name}', "
+            f"status='{self._status}'"
+            f")"
+        )
+
+    def _release(self) -> None:
+        """
+        Private method to release resources.
+        """
+        error: Optional[Exception] = None
+
+        if self._xfer_hndl is not None:
+            try:
+                logger.debug(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: NIXL transfer handle {self._xfer_hndl} released."
+                )
+                self._connection._nixl.release_xfer_handle(self._xfer_hndl)
+            except Exception as e:
+                logger.error(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: Failed to release resources: {e}"
+                )
+                error = e
+            finally:
+                self._xfer_hndl = None
+
+        try:
+            super()._release()
+        except Exception as e:
+            logger.error(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Failed to release base class resources: {e}"
+            )
+            if error is not None:
+                e.__cause__ = error
+            error = e
+
+        if error is not None:
+            raise error
+
+    def _cancel_(self) -> None:
+        if self._xfer_hndl is None:
+            return
+        if self.status == OperationStatus.ERRORED:
+            raise RuntimeError("Operation is errored, unable to cancel the operation.")
+
+        logger.info(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Cancellation requested for operation {{ kind={self._operation_kind}, remote='{self._remote.name}', status={self._status} }}."
+        )
+
+        # NIXL will cancel the transfer if it is in progress when the handle is released.
+        self._connection._nixl.release_xfer_handle(self._xfer_hndl)
+        self._status = OperationStatus.CANCELLED
+        self._xfer_hndl = None
+
+    async def _wait_for_completion_(
+        self, min_poll_ms=5, max_poll_ms=100, backoff_factor=1.5
+    ) -> None:
+        # Loop until the operation is no longer in progress (or "initialized"),
+        # yielding control to the event loop to allow other operations to run.
+        start = time.monotonic()
+        next_log_time = start
+        sleep_time = min_poll_ms
+        while True:
+            now = time.monotonic()
+            if now >= next_log_time:
+                next_log_time = now + 10.0
+                logger.debug(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: Waiting for operation {{ kind={self._operation_kind}, remote='{self._remote.name}', duration={now - start:.1f}s }}."
+                )
+            match self.status:
+                # "in progress" or "initialized" means the operation is ongoing.
+                case OperationStatus.INITIALIZED | OperationStatus.IN_PROGRESS:
+                    await asyncio.sleep(sleep_time / 1000)
+                    sleep_time = min(sleep_time * backoff_factor, max_poll_ms)
+                # ERRORED indicates the remote agent may have disconnected or
+                # its memory may be invalid (e.g. prefill worker scaled down).
+                # Raise so the caller can surface this as a retryable error
+                # rather than silently returning stale/empty data.
+                case OperationStatus.ERRORED:
+                    raise RuntimeError(
+                        f"NIXL transfer operation ERRORED for remote '{self._remote.name}'. "
+                        "The remote agent may have disconnected or its GPU memory may be "
+                        "invalid (e.g. the prefill worker was scaled down mid-transfer)."
+                    )
+                # Any other state (COMPLETE, CANCELLED) indicates the transfer is done.
+                case _:
+                    return
+
+    @abstractmethod
+    def cancel(self) -> None:
+        """
+        Cancels the operation.
+        No affect if the operation has already completed or errored, or has been cancelled.
+        """
+        raise NotImplementedError("Abstract method not implemented by derived class.")
+
+    @property
+    def remote(self) -> Remote:
+        """
+        Gets the remote worker associated with this operation.
+        """
+        return self._remote
+
+    @property
+    def status(self) -> OperationStatus:
+        """
+        Gets the status of the operation.
+        """
+        # Early return if the operation is already complete, errored, or cancelled.
+        match self._status:
+            case (
+                OperationStatus.COMPLETE
+                | OperationStatus.ERRORED
+                | OperationStatus.CANCELLED
+            ):
+                return self._status
+
+        if self._xfer_hndl is None:
+            raise RuntimeError("NIXL transfer handle is invalid.")
+
+        old_status = self._status
+
+        if self._status == OperationStatus.UNINITIALIZED:
+            state = self._connection._nixl.transfer(
+                self._xfer_hndl,
+                self._notification_key.encode("utf-8"),
+            )
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: NIXL reported transfer state: {state}"
+            )
+            if state == "ERR":
+                self._status = OperationStatus.ERRORED
+            elif state == "DONE":
+                self._status = OperationStatus.COMPLETE
+            else:
+                self._status = OperationStatus.INITIALIZED
+        else:
+            state = self._connection._nixl.check_xfer_state(self._xfer_hndl)
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: NIXL reported transfer state: {state}"
+            )
+            if state == "ERR":
+                self._status = OperationStatus.ERRORED
+            elif state == "DONE":
+                self._status = OperationStatus.COMPLETE
+            else:
+                self._status = OperationStatus.IN_PROGRESS
+
+        if self._status != old_status:
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: {{ remote: '{self._remote.name}' status: '{old_status}' => '{self._status}' }}."
+            )
+
+        return self._status
+
+
+class Connection:
+    def __init__(self, connector: Connector, number: int):
+        """
+        Creates a new Connection instance.
+
+        Parameters
+        ----------
+        connector : Connector
+            The connector associated with this connection.
+        number : int
+            The connection number.
+            Used to create a unique name for the connection.
+
+        Raises
+        ------
+        TypeError
+            When `connector` is provided and not of type `dynamo.nixl_connect.Connector`.
+        TypeError
+            When `number` is provided and not of type `int`.
+        ValueError
+            When `number` is provided and not greater than 0.
+        """
+        if not isinstance(connector, Connector):
+            raise TypeError(
+                "Argument `connector` must be `dynamo.nixl_connect.Connector`."
+            )
+        if not isinstance(number, int):
+            raise TypeError("Argument `number` must be of type `int`.")
+        if number <= 0:
+            raise ValueError("Argument `number` must be greater than 0.")
+
+        self._connector: Connector = connector
+        self._is_initialized = False
+        self._name = f"{connector.name}-{number}"
+        self._nixl = nixl_api.nixl_agent(self._name)
+
+        self._remote_refs: dict[str, int] = {}  # ref-count remote agents
+        self._remote_refs_lock = threading.Lock()
+
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}."
+        )
+
+    def __repr__(self) -> str:
+        return str(
+            f"{self.__class__.__name__}("
+            f"is_initialized={self._is_initialized}, "
+            f"name='{self._name}'"
+            ")"
+        )
+
+    def __str__(self) -> str:
+        return self._name
+
+    @property
+    def connector(self) -> Connector:
+        """
+        Get the connector associated with this connection.
+        """
+        return self._connector
+
+    @property
+    def metadata(self) -> bytes:
+        """
+        Get the metadata of the connection.
+        """
+        return self._nixl.get_agent_metadata()
+
+    @property
+    def name(self) -> str | None:
+        """
+        Get the name of the connection.
+        """
+        return self._name
+
+    def acquire_remote_ref(self, name: str) -> None:
+        with self._remote_refs_lock:
+            self._remote_refs[name] = self._remote_refs.get(name, 0) + 1
+
+    def release_remote_ref(self, name: str) -> bool:
+        """Returns True when the last reference is released."""
+        with self._remote_refs_lock:
+            ref_count = self._remote_refs.get(name)
+            if ref_count is None:
+                return False
+            if ref_count == 1:
+                self._remote_refs.pop(name, None)
+                return True
+            self._remote_refs[name] = ref_count - 1
+            return False
+
+    async def initialize(self) -> None:
+        # Only initialize the connection once.
+        if self._is_initialized:
+            return
+
+        self._is_initialized = True
+        # This method is a no-op for now, in the future it may be used to initialize the connection.
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Initialized {{ name: '{self._name}' }} completed."
+        )
+
+
+class Connector:
+    """
+    Core class for managing the connection between workers in a distributed environment.
+    Use this class to create readable and writable operations, or read and write data to remote workers.
+    """
+
+    def __init__(
+        self,
+        worker_id: Optional[str] = None,
+    ) -> None:
+        """
+        Creates a new Connector instance.
+
+        Parameters
+        ----------
+        worker_id : Optional[str], optional
+            Unique identifier of the worker, defaults to a new UUID when `None`.
+
+        Raises
+        ------
+        TypeError
+            When `worker_id` is provided and not of type `uuid.UUID`.
+        """
+        worker_id = (
+            worker_id if worker_id is not None else str(uuid.uuid4()).replace("-", "")
+        )
+        if not isinstance(worker_id, str) or len(worker_id) == 0:
+            raise TypeError("Argument `worker_id` must be a non-empty `str` or `None`.")
+
+        self._connection_count: int = 0
+        self._worker_id = worker_id
+        self._hostname = socket.gethostname()
+
+        self._shared_connection: Optional[Connection] = None
+        self._shared_connection_lock = asyncio.Lock()
+
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}."
+        )
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, Connector):
+            return False
+        return self._worker_id == other._worker_id
+
+    def __ne__(self, value: object) -> bool:
+        if not isinstance(value, Connector):
+            return True
+        return self._worker_id != value._worker_id
+
+    def __repr__(self) -> str:
+        return str(
+            f"{self.__class__.__name__}("
+            f"worker_id='{self._worker_id}', "
+            f"hostname={self._hostname}"
+            ")"
+        )
+
+    def __str__(self) -> str:
+        return self._worker_id
+
+    @property
+    def hostname(self) -> str:
+        """
+        Get the name of the current worker's host.
+        """
+        return self._hostname
+
+    @cached_property
+    def is_cuda_available(self) -> bool:
+        # Note: `cuda.is_available` initializes CUDA
+        #       and can't be called when forking subprocesses
+        #       care should be taken to only call it within
+        #       subprocesses or use 'spawn'
+        try:
+            return array_module.cuda is not None and array_module.cuda.is_available()
+        except CUDARuntimeError:
+            return False
+
+    @property
+    def name(self) -> str | None:
+        """
+        Get the name of the worker.
+        """
+        return self._worker_id
+
+    async def begin_read(
+        self,
+        remote_metadata: RdmaMetadata,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> ReadOperation:
+        """
+        Creates a read operation for fulfilling a remote readable operation.
+
+        Parameters
+        ----------
+        remote_metadata : RdmaMetadata
+            RDMA metadata from a remote worker that has created a readable operation.
+        local_descriptors : Descriptor | list[Descriptor]
+            Local descriptor(s) to receive data from the remote worker described by `remote_metadata`.
+
+        Returns
+        -------
+        ReadOperation
+            Awaitable read operation that can be used to transfer data from a remote worker.
+
+        Raises
+        ------
+        TypeError
+            When `remote_metadata` is not of type `RdmaMetadata`.
+        TypeError
+            When `local_descriptors` is not of type `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`.
+        """
+        if remote_metadata is None or not isinstance(remote_metadata, RdmaMetadata):
+            raise TypeError("Argument `remote_metadata` must be `RdmaMetadata`.")
+        if not (
+            isinstance(local_descriptors, Descriptor)
+            or (
+                isinstance(local_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in local_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `local_descriptors` must be `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`."
+            )
+        if remote_metadata.operation_kind != OperationKind.READ.value:
+            raise RuntimeError(
+                "Cannot create a `dynamo.nixl_connect.ReadOperation` to read from a remote `dynamo.nixl_connect.WritableOperation`."
+            )
+
+        conn = await self._create_connection()
+        op = ReadOperation(conn, remote_metadata, local_descriptors)
+        return op
+
+    async def begin_write(
+        self,
+        local_descriptors: Descriptor | list[Descriptor],
+        remote_metadata: RdmaMetadata,
+    ) -> WriteOperation:
+        """
+        Creates a write operation for transferring data to a remote worker.
+
+        Parameters
+        ----------
+        local_descriptors : Descriptor | list[Descriptor]
+            Local descriptors of one or more data objects to be transferred to the remote worker.
+        remote_metadata : RdmaMetadata
+            Serialized request from a remote worker that has created a readable operation.
+        """
+        if remote_metadata is None or not isinstance(remote_metadata, RdmaMetadata):
+            raise TypeError("Argument `remote_metadata` must be `RdmaMetadata`.")
+        if not (
+            isinstance(local_descriptors, Descriptor)
+            or (
+                isinstance(local_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in local_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `local_descriptors` must be `Descriptor` or `list[Descriptor]`."
+            )
+        if remote_metadata.operation_kind != OperationKind.WRITE.value:
+            raise RuntimeError(
+                "Cannot create a `WriteOperation` to write to a remote `ReadableOperation`."
+            )
+        if not isinstance(remote_metadata.nixl_metadata, str):
+            raise TypeError("Argument `remote_metadata.nixl_metadata` must be `str`.")
+
+        conn = await self._create_connection()
+        op = WriteOperation(conn, local_descriptors, remote_metadata)
+        return op
+
+    async def create_readable(
+        self,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> ReadableOperation:
+        """
+        Creates a readable operation for transferring data from a remote worker.
+
+        Returns
+        -------
+        ReadableOperation
+            A readable operation that can be used to transfer data from a remote worker.
+        """
+        conn = await self._create_connection()
+        op = ReadableOperation(conn, local_descriptors)
+        return op
+
+    async def create_writable(
+        self,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> WritableOperation:
+        """
+        Creates a writable operation for transferring data to a remote worker.
+
+        Returns
+        -------
+        WritableOperation
+            A writable operation that can be used to transfer data to a remote worker.
+        """
+        conn = await self._create_connection()
+        op = WritableOperation(conn, local_descriptors)
+        return op
+
+    async def initialize(self) -> None:
+        """
+        Deprecated method.
+        """
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Initialized {{ name: '{self._worker_id}' }} (This method is deprecated)."
+        )
+
+    async def _create_connection(self) -> Connection:
+        """Create and return a single shared Connection (NIXL agent)."""
+        async with self._shared_connection_lock:
+            if self._shared_connection is not None:
+                return self._shared_connection
+            self._connection_count += 1
+            conn = Connection(self, self._connection_count)
+            await conn.initialize()
+            self._shared_connection = conn
+            logger.info(
+                f"dynamo.nixl_connect.Connector: Created shared connection '{conn.name}'."
+            )
+            return conn
+
+
+class Descriptor:
+    """
+    Memory descriptor that ensures memory is registered w/ NIXL, used for transferring data between workers.
+    """
+
+    def __init__(
+        self,
+        data: torch.Tensor
+        | tuple[array_module.ndarray, Device | str]
+        | bytes
+        | tuple[int, int, Device | str, Any],
+    ) -> None:
+        """
+        Memory descriptor for transferring data between workers.
+
+        Parameters
+        ----------
+        data : torch.Tensor | tuple[ndarray, Device|str] | bytes | tuple[int, int, Device|str, Any]
+            The data to be transferred.
+
+            When `torch.Tensor` is provided, the attributes of the tensor will be used to create the descriptor.
+
+            When `tuple[ndarray, Device]` is provided, the tuple must contain:
+            - `ndarray`: The CuPy or NumPy array to be transferred.
+            - `Device`: Either a `dynamo.nixl_connect.Device` or a string representing the device type (e.g., "cuda" or "cpu").
+
+            When `bytes` is provided, the pointer and size derived from the bytes object and memory type will be assumed to be CPU.
+
+            When `tuple[int, int, Device|str, Any]` is provided, the tuple must contain the following elements:
+            - `int`: Pointer to the data in memory.
+            - `int`: Size of the data in bytes.
+            - `Device`: Either a `dynamo.nixl_connect.Device` or a string representing the device type (e.g., "cuda" or "cpu").
+            - `Any`: Optional reference to the data (e.g., the original tensor or bytes object).
+                     This is useful for keeping a reference to the data in memory, but it is not required.
+
+        Raises
+        ------
+        ValueError
+            When `data` is `None`.
+        TypeError
+            When `data` is not a valid type (i.e., not `torch.Tensor`, `bytes`, or a valid tuple).
+        TypeError
+            When `data` is a tuple but the elements are not of the expected types (i.e., [`ndarray`, `Device|str`] OR [`int`, `int`, `Device|str`, `Any`]).
+        """
+        TYPE_ERROR_MESSAGE = "Argument `data` must be `torch.Tensor`, `tuple[ndarray, Device|str]`, `bytes`, or `tuple[int, int, Device|str, Any]`."
+        if data is None:
+            raise ValueError("Argument `data` cannot be `None`.")
+        if not (
+            isinstance(data, torch.Tensor)
+            or isinstance(data, (bytes, bytearray))
+            or isinstance(data, tuple)
+        ):
+            raise TypeError(TYPE_ERROR_MESSAGE)
+
+        self._data_device: Device = Device("cpu")
+        self._data_ptr: int = 0
+        self._data_ref: Optional[Any] = None
+        self._data_size: int = 0
+
+        # Member fields for managing NIXL memory registration.
+        # Note: ONLY local descriptors should be registered with NIXL,
+        #      remote descriptors do not have a valid memory address and registration will fault.
+
+        self._connection: Optional[Connection] = None
+        self._nixl_hndl: Optional[nixl_bindings.nixlRegDList] = None
+
+        # Initially `None` cached serialized descriptor reference, populated when `get_metadata()` is called.
+        self._serialized: Optional[SerializedDescriptor] = None
+
+        # Data is `torch.Tensor`.
+        if isinstance(data, torch.Tensor):
+            self._data_ptr = data.data_ptr()
+            self._data_size = data.numel() * data.element_size()
+            if data.is_cuda:
+                self._data_device = Device((DeviceKind.CUDA, data.get_device()))
+            self._data_ref = data
+
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()} from `torch.Tensor`."
+            )
+
+        # Data is `tuple[ndarray, Device]`.
+        elif (
+            isinstance(data, tuple)
+            and len(data) == 2
+            and isinstance(data[0], array_module.ndarray)
+            and (isinstance(data[1], Device) or isinstance(data[1], str))
+        ):
+            if hasattr(data[0], "__array_interface__"):
+                self._data_ptr = data[0].__array_interface__["data"][0]
+            elif hasattr(data[0], "__cuda_array_interface__"):
+                self._data_ptr = data[0].__cuda_array_interface__["data"][0]
+            else:
+                raise TypeError(
+                    "Argument `data[0]` must be a `ndarray` with a valid array interface."
+                )
+            self._data_size = data[0].nbytes
+            self._data_device = (
+                data[1] if isinstance(data[1], Device) else Device(data[1])
+            )
+            self._data_ref = data[0]
+
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()} from `tuple[ndarray, Device|str]`."
+            )
+
+        # Data is `bytes`.
+        elif isinstance(data, (bytes, bytearray)):
+            (self._data_ptr, self._data_size) = self._buffer_to_ptr_size(data)
+            self._data_ref = data
+
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()} from `bytes`."
+            )
+
+        # Data is `tuple[int, int, Device, dtype, tuple, Any]`.
+        elif (
+            isinstance(data, tuple)
+            and len(data) >= 2
+            and isinstance(data[0], int)
+            and isinstance(data[1], int)
+        ):
+            if len(data) >= 3 and not (
+                isinstance(data[2], Device) or isinstance(data[2], str)
+            ):
+                raise TypeError(
+                    "Argument `data` must be a `tuple[int, int, Device|str, Any]`."
+                )
+
+            self._data_ptr = data[0]
+            self._data_size = data[1]
+            if len(data) >= 3:
+                self._data_device = (
+                    data[2] if isinstance(data[2], Device) else Device(data[2])
+                )
+            self._data_ref = data[3] if len(data) >= 4 else None
+
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()} from `tuple[int, int, Device|str, Any]`."
+            )
+        else:
+            raise TypeError(TYPE_ERROR_MESSAGE)
+
+    def __del__(self) -> None:
+        if not (self._nixl_hndl is None or self._connection is None):
+            # Deregister the memory with NIXL.
+            self._connection._nixl.deregister_memory(self._nixl_hndl)
+            self._nixl_hndl = None
+            self._connection = None
+
+        if self._data_ref is not None:
+            # Release the reference to the data.
+            del self._data_ref
+
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deleted {self.__repr__()}."
+        )
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self})"
+
+    def __str__(self) -> str:
+        return f"ptr={hex(self._data_ptr)}, size={self._data_size}, device={self._data_device}"
+
+    @property
+    def device(self) -> Device:
+        """
+        Gets the device the of the descriptor.
+        """
+        return self._data_device
+
+    @property
+    def is_registered(self) -> bool:
+        """
+        Gets whether the descriptor is registered with NIXL.
+        """
+        return self._connection is not None and self._nixl_hndl is not None
+
+    @property
+    def ptr(self) -> int:
+        """
+        Gets the pointer of the descriptor.
+        """
+        return self._data_ptr
+
+    @property
+    def size(self) -> int:
+        """
+        Gets the size of the descriptor.
+        """
+        return self._data_size
+
+    @staticmethod
+    def from_serialized(
+        serialized: SerializedDescriptor,
+    ) -> Descriptor:
+        """
+        Deserializes a `SerializedDescriptor` into a `Descriptor` object.
+
+        Parameters
+        ----------
+        serialized : SerializedDescriptor
+            The serialized descriptor to deserialize.
+
+        Returns
+        -------
+        Descriptor
+            The deserialized descriptor.
+        """
+        if not isinstance(serialized, SerializedDescriptor):
+            raise TypeError("Argument `serialized` must be `SerializedDescriptor`.")
+
+        return serialized.to_descriptor()
+
+    @property
+    def metadata(self) -> SerializedDescriptor:
+        """
+        Serializes the descriptor into a `SerializedDescriptor` object.
+        """
+        if self._serialized is None:
+            self._serialized = SerializedDescriptor(
+                device=f"{self._data_device}",
+                ptr=self._data_ptr,
+                size=self._data_size,
+            )  # type: ignore[operator]
+
+        return self._serialized
+
+    def deregister_with_connector(self, connection: Connection) -> None:
+        """
+        Deregisters the memory of the descriptor with NIXL.
+        """
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if connection != self._connection:
+            raise RuntimeError(
+                "Descriptor can only be deregistered from the connection it was registered with. "
+                f"Existing connection: {self._connection.name if self._connection is not None else None}, requested connection: {connection.name}."
+            )
+            return
+
+        if self._nixl_hndl is None:
+            logger.warning(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Request to deregister Descriptor {self.__repr__()} cannot be completed because the Descriptor is not registered."
+            )
+            return
+
+        connection._nixl.deregister_memory(self._nixl_hndl)
+        self._nixl_hndl = None
+        self._connection = None
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deregistered {self.__repr__()} with NIXL."
+        )
+
+    def register_with_connector(
+        self,
+        connection: Connection,
+    ) -> None:
+        """
+        Registers the memory of the descriptor with NIXL.
+        """
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if self._data_ptr == 0:
+            raise ValueError("Cannot register memory with a null pointer.")
+        if self._connection is not None:
+            if self._connection != connection:
+                raise RuntimeError(
+                    "Descriptor cannot be registered with more than one connection. "
+                    f"Existing connection: {self._connection.name}, new connection: {connection.name}."
+                )
+            # Descriptor is already registered with this connection.
+            return
+
+        # When the descriptor is already registered with NIXL, just return.
+        if self._nixl_hndl is not None:
+            return
+
+        # Register the memory with NIXL.
+        self._connection = connection
+
+        if isinstance(self._data_ref, torch.Tensor):
+            self._nixl_hndl = connection._nixl.register_memory(self._data_ref)
+        else:
+            mem_type = str(self._data_device.kind)
+            reg_list = [
+                (self._data_ptr, self._data_size, self._data_device.id, mem_type)
+            ]
+            self._nixl_hndl = connection._nixl.register_memory(reg_list, mem_type)
+
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Registered {self.__repr__()} with NIXL."
+        )
+
+    def _buffer_to_ptr_size(
+        self,  # Adding a comment here to satisfy the character requirements.
+        data: bytes | bytearray,
+    ) -> tuple[int, int]:
+        """
+        Returns the memory address of the underlying data of a bytes or bytearray object as well as its size.
+
+        Parameters
+        ----------
+        data : bytes | bytearray
+            The bytes or bytearray object to get the data pointer and size from.
+
+        Returns
+        -------
+        tuple[int, int]
+            A tuple containing the memory address of the underlying data and its size.
+        """
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError("Argument `data` must be `bytes` or `bytearray`.")
+
+        cptr = ctypes.c_char_p()
+        size = ctypes.c_size_t()
+
+        # Request the pointer to the underlying data and the buffer's size from ctypes.
+        try:
+            ret = ctypes.pythonapi.PyObject_AsCharBuffer(
+                ctypes.py_object(data),
+                ctypes.byref(cptr),
+                ctypes.byref(size),
+            )
+            # Ensure the call was successful and the pointer is valid.
+            if ret != 0 or cptr.value is None:
+                raise RuntimeError(
+                    f"ctypes.pythonapi.PyObject_AsCharBuffer failed (error: {ret})."
+                )
+            # The resulting pointer is a `char*`, cast it to a `void*` to that ctypes will provide the address.
+            # `c_char_p.value` returns a `bytes`` object instead of the pointer address;
+            # whereas `c_void_p.value` returns the actual pointer address as an `int`.
+            vptr = ctypes.cast(cptr, ctypes.c_void_p)
+
+            return (0, 0) if vptr.value is None else (vptr.value, size.value)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to get memory address of the underlying data and size of `{type(data).__name__}` object via ctypes inspection."
+            ) from e
+
+
+class Device:
+    """
+    Represents a device in the system.
+    """
+
+    def __init__(
+        self,
+        metadata: str | tuple[DeviceKind, int],
+    ) -> None:
+        if metadata is None:
+            raise ValueError("Argument `metadata` cannot be `None`.")
+        if (
+            isinstance(metadata, tuple)
+            and len(metadata) == 2
+            and isinstance(metadata[0], DeviceKind)
+            and isinstance(metadata[1], int)
+        ):
+            kind, device_id = metadata
+        elif isinstance(metadata, str):
+            metadata = metadata.strip().lower()
+            if metadata.startswith("cuda") or metadata.startswith("gpu"):
+                kind = DeviceKind.CUDA
+                device_id = (
+                    0 if metadata.find(":") == -1 else int(metadata.split(":")[1])
+                )
+            elif metadata.startswith("cpu") or metadata.startswith("host"):
+                kind = DeviceKind.HOST
+                device_id = 0
+            else:
+                raise ValueError(
+                    "Argument `metadata` must be in the format 'cuda:<device_id>' or 'cpu'."
+                )
+        else:
+            raise TypeError(
+                "Argument `metadata` must be a `tuple[MemoryKind, int]` or a `str`."
+            )
+
+        self._device_id = device_id
+        self._kind = kind
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(kind={self._kind}, id={self._device_id})"
+
+    def __str__(self) -> str:
+        return (
+            f"{self._kind}:{self._device_id}"
+            if self._kind is DeviceKind.CUDA
+            else f"{self._kind}"
+        )
+
+    @property
+    def id(self) -> int:
+        """
+        Gets the device ID of the device.
+        """
+        return self._device_id
+
+    @property
+    def kind(self) -> DeviceKind:
+        """
+        Gets the memory kind of the device.
+        """
+        return self._kind
+
+
+class DeviceKind(IntEnum):
+    """
+    Type of memory a descriptor has been allocated to.
+    """
+
+    UNSPECIFIED = 0
+
+    HOST = 1
+    """
+    System (CPU) memory.
+    """
+
+    CUDA = 2
+    """
+    CUDA addressable device (GPU) memory.
+    """
+
+    def __str__(self) -> str:
+        if self == DeviceKind.HOST:
+            return "cpu"
+        elif self == DeviceKind.CUDA:
+            return "cuda"
+        else:
+            return "<invalid>"
+
+
+class OperationKind(IntEnum):
+    """
+    Kind of an operation.
+    """
+
+    UNSPECIFIED = 0
+    READ = 1
+    WRITE = 2
+
+    def __str__(self) -> str:
+        if self == OperationKind.READ:
+            return "READ"
+        elif self == OperationKind.WRITE:
+            return "WRITE"
+        else:
+            return "<invalid>"
+
+
+class OperationStatus(IntEnum):
+    """
+    Status of an operation.
+    """
+
+    UNINITIALIZED = 0
+    """The operation has not been initialized yet and is not in a valid state."""
+
+    INITIALIZED = 1
+    """The operation has been initialized and is ready to be processed."""
+
+    IN_PROGRESS = 2
+    """The operation has been initialized and is in-progress (not completed, errored, or cancelled)."""
+
+    COMPLETE = 3
+    """The operation has been completed successfully."""
+
+    CANCELLED = 4
+    """The operation has been cancelled by the user or system."""
+
+    ERRORED = 5
+    """The operation has encountered an error and cannot be completed."""
+
+    def __str__(self) -> str:
+        if self == OperationStatus.INITIALIZED:
+            return "INIT"
+        elif self == OperationStatus.IN_PROGRESS:
+            return "PROC"
+        elif self == OperationStatus.COMPLETE:
+            return "DONE"
+        elif self == OperationStatus.ERRORED:
+            return "ERR"
+        elif self == OperationStatus.CANCELLED:
+            return "STOP"
+        else:
+            return "<invalid>"
+
+
+class PassiveOperation(AbstractOperation):
+    """
+    Abstract class for common functionality of passive operations.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        operation_kind: OperationKind,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> None:
+        if (
+            operation_kind is not OperationKind.READ
+            and operation_kind is not OperationKind.WRITE
+        ):
+            raise ValueError(
+                "Argument `operation_kind` must be either `READ` or `WRITE`."
+            )
+
+        self._status = OperationStatus.UNINITIALIZED
+
+        super().__init__(
+            connection,
+            operation_kind,
+            local_descriptors,
+            None,
+            None,
+        )
+
+        self._serialized_request: Optional[RdmaMetadata] = None
+        self._status = OperationStatus.INITIALIZED
+
+    def __del__(self) -> None:
+        super().__del__()
+
+    def __enter__(self) -> AbstractOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        super().__exit__(exc_type, exc_value, traceback)
+
+    def __repr__(self) -> str:
+        return str(
+            f"{self.__class__.__name__}("
+            f"operation_kind={self._operation_kind}, "
+            f"local_descriptors={self._local_desc_list}, "
+            f"notification_key='{self._notification_key}', "
+            f"status='{self._status}'"
+            f")"
+        )
+
+    async def _wait_for_completion_(
+        self, min_poll_ms=5, max_poll_ms=100, backoff_factor=1.5
+    ) -> None:
+        # Loop until the operation is no longer in progress (or "initialized"),
+        # yielding control to the event loop to allow other operations to run.
+        sleep_time = min_poll_ms
+        while True:
+            match self.status:
+                # "in progress" or "initialized" means the operation is ongoing.
+                case OperationStatus.INITIALIZED | OperationStatus.IN_PROGRESS:
+                    await asyncio.sleep(sleep_time / 1000)
+                    sleep_time = min(sleep_time * backoff_factor, max_poll_ms)
+                # Any other state indicates completion or error.
+                case _:
+                    return
+
+    def metadata(self, hex_encode: bool = False) -> RdmaMetadata:
+        """
+        Gets the request descriptor for the operation.
+        """
+        if self._serialized_request is None:
+            # When we've not yet cached the serialized request, we need to generate one before returning it.
+            # Handle both cases: multiple and single descriptors.
+            if isinstance(self._local_desc_list, list):
+                descriptors = [desc.metadata for desc in self._local_desc_list]
+            else:
+                descriptors = [self._local_desc_list.metadata]
+
+            original_len = len(self._connection.metadata)
+            nixl_metadata = self._connection.metadata
+            nixl_metadata = zlib.compress(nixl_metadata, level=6)
+            compressed_len = len(nixl_metadata)
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: Compressed NIXL metadata from {original_len} bytes to {compressed_len} bytes."
+            )
+            if compressed_len > original_len:
+                logger.warning(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: Compressed NIXL metadata is larger than original ({compressed_len} > {original_len})."
+                )
+
+            if not hex_encode:
+                encoded_metadata = base64.b64encode(nixl_metadata).decode("utf-8")
+                encoded_metadata = "b64:" + encoded_metadata
+            else:
+                encoded_metadata = nixl_metadata.hex()
+            self._serialized_request = RdmaMetadata(
+                descriptors=descriptors,
+                nixl_metadata=encoded_metadata,
+                notification_key=self._notification_key,
+                operation_kind=int(self._operation_kind),
+            )
+
+        return self._serialized_request
+
+    @property
+    def status(self) -> OperationStatus:
+        """
+        Gets the status of the operation.
+        """
+        # Early return if the operation is already complete, errored, or cancelled.
+        match self._status:
+            case (
+                OperationStatus.COMPLETE
+                | OperationStatus.ERRORED
+                | OperationStatus.CANCELLED
+            ):
+                return self._status
+
+        old_status = self._status
+
+        # Query NIXL for any notifications.
+        notifications = self._connection._nixl.update_notifs()
+
+        if isinstance(notifications, dict):
+            remote_state = OperationStatus.IN_PROGRESS
+            logger.debug(
+                f"dynamo.nixl_connect.{self.__class__.__name__}: NIXL reported notifications: {len(notifications)}."
+            )
+
+            for key, values in notifications.items():
+                if not isinstance(values, list):
+                    raise TypeError(
+                        f"Expected `dict[str, list[bytes]]` from NIXL notification query; got {type(notifications)}."
+                    )
+                for value in values:
+                    if not isinstance(value, bytes):
+                        continue
+                    notification_key = value.decode("utf-8")
+
+                    # Once we've found the notification key, we know the operation is complete.
+                    if notification_key == self._notification_key:
+                        remote_state = OperationStatus.COMPLETE
+                        break
+
+            if remote_state == OperationStatus.COMPLETE:
+                self._status = remote_state
+                logger.debug(
+                    f"dynamo.nixl_connect.{self.__class__.__name__}: {{ remote: '{self._connection.name}' status: '{old_status}' => '{self._status}' }}."
+                )
+
+        return self._status
+
+    @abstractmethod
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        raise NotImplementedError("Abstract method not implemented by derived class.")
+
+
+class ReadOperation(ActiveOperation):
+    """
+    Operation that initiates an RDMA read operation to transfer data from a remote worker's `ReadableOperation`,
+    as described by `remote_metadata`, to local buffers.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        remote_metadata: RdmaMetadata,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> None:
+        """
+        Creates a new instance of `ReadOperation`, registers `local_descriptors` with NIXL,
+        and begins an RDMA read operation which will transfer data described by `remote_metadata`
+        to `local_descriptors`.
+
+        Parameters
+        ----------
+        connection : Connection
+            Connection instance to use for the operation.
+        remote_metadata : RdmaMetadata
+            Serialized request from the remote worker.
+        local_descriptors : Descriptor | list[Descriptor]
+            Local descriptor(s) to to receive the data from the remote worker.
+        """
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if not isinstance(remote_metadata, RdmaMetadata):
+            raise TypeError(
+                "Argument `remote_metadata` must be `dynamo.nixl_connect.RdmaMetadata`."
+            )
+        if remote_metadata.operation_kind != OperationKind.READ.value:
+            raise ValueError("Argument `remote_metadata` must be of kind `READ`.")
+
+        remote = Remote(connection, remote_metadata.nixl_metadata)
+        remote_descriptors = remote_metadata.to_descriptors()
+
+        if not (
+            isinstance(local_descriptors, Descriptor)
+            or (
+                isinstance(local_descriptors, list)
+                and all(isinstance(d, Descriptor) for d in local_descriptors)
+            )
+        ):
+            raise TypeError(
+                "Argument `local_descriptors` must be `dynamo.nixl_connect.Descriptor`, `list[dynamo.nixl_connect.Descriptor]`."
+            )
+
+        super().__init__(
+            remote,
+            OperationKind.READ,
+            local_descriptors,
+            remote_descriptors,
+            remote_metadata.notification_key,
+        )
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}"
+        )
+
+    def __del__(self) -> None:
+        super().__del__()
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deleted {self.__repr__()}"
+        )
+
+    def __enter__(self) -> ReadOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        super().__exit__(exc_type, exc_value, traceback)
+
+    def __repr__(self) -> str:
+        return super().__repr__()
+
+    def cancel(self) -> None:
+        """
+        Cancels the operation.
+        No affect if the operation has already completed or errored, or been cancelled.
+        """
+        super()._cancel_()
+
+    def results(self) -> list[Descriptor]:
+        """
+        Gets the results of the operation.
+        Returns a single descriptor if only one was requested, or a list of descriptors if multiple were requested.
+        """
+        if self._status != OperationStatus.COMPLETE:
+            raise RuntimeError("Operation has not completed yet, cannot get results.")
+
+        return (
+            self._local_desc_list
+            if isinstance(self._local_desc_list, list)
+            else [self._local_desc_list]
+        )
+
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        await super()._wait_for_completion_()
+
+
+class ReadableOperation(PassiveOperation):
+    """
+    Operation that can be awaited until a remote worker has completed a `ReadOperation`.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> None:
+        super().__init__(connection, OperationKind.READ, local_descriptors)
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}"
+        )
+
+    def __del__(self) -> None:
+        super().__del__()
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deleted {self.__repr__()}"
+        )
+
+    def __enter__(self) -> ReadableOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        super().__exit__(exc_type, exc_value, traceback)
+
+    def __repr__(self) -> str:
+        return super().__repr__()
+
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        await super()._wait_for_completion_()
+
+
+class RdmaMetadata(BaseModel):
+    """
+    Pydantic serialization type for describing the passive side of a transfer.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        arbitrary_types_allowed=True,
+    )
+    descriptors: List[SerializedDescriptor] = []
+    nixl_metadata: str = ""
+    notification_key: str = ""
+    operation_kind: int = 0
+
+    def to_descriptors(self) -> Descriptor | list[Descriptor]:
+        """
+        Deserializes the request descriptor into a `dynamo.nixl_connect.Descriptor` or list of `dynamo.nixl_connect.Descriptor` objects.
+        """
+        if len(self.descriptors) == 0:
+            raise ValueError(
+                "Request descriptor must contain at least one serialized descriptor."
+            )
+        if len(self.descriptors) == 1:
+            return self.descriptors[0].to_descriptor()
+        return [item.to_descriptor() for item in self.descriptors]
+
+    @field_validator("operation_kind")
+    @classmethod
+    def validate_operation_kind(cls, v: int) -> int:
+        if v < 1 or v > 3:
+            raise TypeError(
+                "Argument `operation_kind` must be an integer value of `dynamo.nixl_connect.OperationKind`."
+            )
+        return v
+
+
+class Remote:
+    """
+    Identifies a remote NIXL enabled worker relative to a local NIXL enabled worker.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        nixl_metadata: bytes | str,
+    ) -> None:
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if not (isinstance(nixl_metadata, bytes) or isinstance(nixl_metadata, str)):
+            raise TypeError("Argument `nixl_metadata` must be `bytes` or `str`.")
+        if len(nixl_metadata) == 0:
+            raise ValueError("Argument `nixl_metadata` cannot be empty.")
+
+        self._connection = connection
+
+        # When `nixl_metadata` is a string, it is assumed to have come from a remote worker
+        # via a `RdmaMetadata` object and therefore can assumed be a b64-encoded, compressed
+        # representation of the NIXL metadata.
+        if isinstance(nixl_metadata, str):
+            if nixl_metadata.startswith("b64:"):
+                # Decode the b64-encoded string into bytes.
+                nixl_metadata = base64.b64decode(nixl_metadata[4:])
+            else:
+                # fallback for earlier versions of nixl connect
+                nixl_metadata = bytes.fromhex(nixl_metadata)
+            # Decompress the NIXL metadata.
+            nixl_metadata = zlib.decompress(nixl_metadata)
+
+        self._name = connection._nixl.add_remote_agent(nixl_metadata)
+        if isinstance(self._name, bytes):
+            self._name = self._name.decode("utf-8")
+
+        connection.acquire_remote_ref(self._name)
+        self._released = False
+
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}."
+        )
+
+    def __del__(self) -> None:
+        self._release()
+
+    def __enter__(self) -> Remote:
+        """
+        Context manager entry method. Returns the current instance.
+        """
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        """
+        Context manager exit method. Cleans up the instance.
+        """
+        self._release()
+
+    def __repr__(self) -> str:
+        return f"Remote(name={self._name}, connection={self._connection.name})"
+
+    def __str__(self) -> str:
+        return self._name
+
+    def _release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        if self._connection.release_remote_ref(self._name):
+            self._connection._nixl.remove_remote_agent(self._name)
+
+    @property
+    def connection(self) -> Connection:
+        """
+        Gets the local connection associated with this remote worker.
+        """
+        return self._connection
+
+    @property
+    def name(self) -> str:
+        """
+        Gets the name of the remote worker.
+        """
+        return self._name
+
+
+class SerializedDescriptor(BaseModel):
+    """
+    Pydantic serialization type for memory descriptors.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        arbitrary_types_allowed=True,
+    )
+
+    device: str = "cpu"
+    ptr: int = 0
+    size: int = 0
+
+    def to_descriptor(self) -> Descriptor:
+        """
+        Deserialize the serialized descriptor into a `Descriptor` object.
+        """
+        return Descriptor(data=(self.ptr, self.size, self.device, None))
+
+    @field_validator("device")
+    @classmethod
+    def validate_device(cls, v: str) -> str:
+        if not isinstance(v, str):
+            raise TypeError("Argument `device` must be `str`.")
+        v = v.strip().lower()
+        if not (v.startswith("cuda") or v == "cpu"):
+            raise ValueError(
+                "Argument `device` must be one of 'cpu' or 'cuda:<device_id>'."
+            )
+        return v
+
+    @field_validator("ptr")
+    @classmethod
+    def validate_ptr(cls, v: int) -> int:
+        if v == 0:
+            raise ValueError("Argument `ptr` cannot be zero (aka `null` or `None`).")
+        return v
+
+    @field_validator("size")
+    @classmethod
+    def validate_size(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(
+                "Argument `size` must be an integer greater than or equal to zero."
+            )
+        return v
+
+
+class WritableOperation(PassiveOperation):
+    """
+    Operation which can be awaited until written to by a `WriteOperation` from a remote worker.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        local_descriptors: Descriptor | list[Descriptor],
+    ) -> None:
+        """
+        Creates a new instance of `WritableOperation`, registers the operation and descriptors w/ NIXL,
+        and enables an RDMA write operation to occur.
+
+        Parameters
+        ----------
+        connection : Connection
+            Connection instance to use for the operation.
+        local_descriptors : Descriptor | list[Descriptor]
+            Descriptors to receive data from a remote worker.
+
+        Raises
+        TypeError
+            When `connection` is not a `dynamo.nixl_connect.Connection`.
+        TypeError
+            When `local_descriptors` is not a `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`.
+        """
+        super().__init__(connection, OperationKind.WRITE, local_descriptors)
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}"
+        )
+
+    def __del__(self) -> None:
+        super().__del__()
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deleted {self.__repr__()}"
+        )
+
+    def __enter__(self) -> WritableOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        super().__exit__(exc_type, exc_value, traceback)
+
+    def __repr__(self) -> str:
+        return super().__repr__()
+
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        await super()._wait_for_completion_()
+
+
+class WriteOperation(ActiveOperation):
+    """
+    Awaitable write operation which initiates an RDMA write operation to a remote worker
+    which provided a `RdmaMetadata` object from a `WritableOperation`.
+    """
+
+    def __init__(
+        self,
+        connection: Connection,
+        local_descriptors: Descriptor | list[Descriptor],
+        remote_metadata: RdmaMetadata,
+    ) -> None:
+        """
+        Creates a new instance of `WriteOperation`, registers `local_descriptors` with NIXL,
+        and begins an RDMA write operation which will transfer from `local_descriptors` to
+        remote target(s) described by `remote_metadata`
+
+        Parameters
+        ----------
+        connection : Connection
+            Connection instance to use for the operation.
+        local_descriptors : Descriptor | list[Descriptor]
+            Local descriptor(s) to send from, to the remote worker.
+        remote_metadata : RdmaMetadata
+            Serialized request from the remote worker that describes the target(s) to send to.
+
+        Raises
+        TypeError
+            When `connector` is not a `dynamo.nixl_connect.Connector`.
+        TypeError
+            When `remote_metadata` is not a `dynamo.nixl_connect.RdmaMetadata`.
+        ValueError
+            When `remote_metadata` is not of kind `WRITE`.
+        ValueError
+            When `remote_metadata.nixl_metadata` is not a non-empty `str`.
+        TypeError
+            When `local_descriptors` is not a `dynamo.nixl_connect.Descriptor` or `list[dynamo.nixl_connect.Descriptor]`.
+        """
+        if not isinstance(connection, Connection):
+            raise TypeError(
+                "Argument `connection` must be `dynamo.nixl_connect.Connection`."
+            )
+        if not isinstance(remote_metadata, RdmaMetadata):
+            raise TypeError(
+                "Argument `remote_metadata` must be `dynamo.nixl_connect.RdmaMetadata`."
+            )
+        if remote_metadata.operation_kind != OperationKind.WRITE.value:
+            raise ValueError("Argument `remote_metadata` must be of kind `WRITE`.")
+
+        remote = Remote(connection, remote_metadata.nixl_metadata)
+        remote_descriptors = remote_metadata.to_descriptors()
+
+        super().__init__(
+            remote,
+            OperationKind.WRITE,
+            local_descriptors,
+            remote_descriptors,
+            remote_metadata.notification_key,
+        )
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Created {self.__repr__()}"
+        )
+
+    def __del__(self) -> None:
+        super().__del__()
+        logger.debug(
+            f"dynamo.nixl_connect.{self.__class__.__name__}: Deleted {self.__repr__()}"
+        )
+
+    def __enter__(self) -> WriteOperation:
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        super().__exit__(exc_type, exc_value, traceback)
+
+    def __repr__(self) -> str:
+        return super().__repr__()
+
+    def cancel(self) -> None:
+        """
+        Cancels the operation.
+        No affect if the operation has already completed or errored, or has been cancelled.
+        """
+        super()._cancel_()
+
+    async def wait_for_completion(self) -> None:
+        """
+        Blocks the caller asynchronously until the operation has completed.
+        """
+        await super()._wait_for_completion_()

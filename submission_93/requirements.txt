@@ -1,0 +1,7 @@
+# poppycock — runtime dependencies for client.py
+# vLLM and torch are installed conditionally by setup.sh when MODEL_PATH is
+# present; they are intentionally NOT pinned here to avoid blocking install
+# on machines without GPU / Blackwell-compatible wheels.
+
+httpx>=0.27.0,<1.0
+transformers>=4.40.0
